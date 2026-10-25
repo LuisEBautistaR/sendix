@@ -1,0 +1,65 @@
+# Release on a version tag (v0.2.0) or by hand:
+#   - checks that the tag matches package.json, runs the tests
+#   - Windows installer (NSIS) + latest.yml for auto-update + SHA-256, into a draft release
+#   - optional Authenticode signing with SignPath (only when its secret exists)
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: La etiqueta coincide con package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "La etiqueta $GITHUB_REF_NAME no coincide con package.json ($version)"; exit 1; }
+      - run: npm ci
+      - run: npm run check
+      - name: Instalador
+        run: npx electron-builder --win --publish never
+      - name: Subir el instalador sin firmar
+        id: unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-unsigned
+          path: release/*/Sendix-*-setup.exe
+      - name: Firmar con SignPath
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: sendix
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: release/signed
+      - name: Borrador de release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release
+          version=${GITHUB_REF_NAME#v}
+          setup=$(ls signed/Sendix-*-setup.exe 2>/dev/null || ls "$version"/Sendix-*-setup.exe)
+          sha256sum "$setup" | sed 's|  .*/|  |' > "$(basename "$setup").sha256"
+          gh release create "$GITHUB_REF_NAME" --draft --title "Sendix $version" --notes "Ver README" \
+            "$setup" "$(basename "$setup").sha256" "$version"/Sendix-*-setup.exe.blockmap "$version"/latest.yml

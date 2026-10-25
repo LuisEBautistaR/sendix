@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package tienda.comun;
+
+message Dinero {
+  string moneda = 1;
+  int64 centavos = 2;
+}

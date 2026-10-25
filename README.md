@@ -1,0 +1,151 @@
+<img src="docs/logo.svg" alt="" width="64" height="64">
+
+# Sendix
+
+Cliente de API de escritorio, local primero y compatible con colecciones Postman v2.1. Sistema visual en [docs/DESIGN.md](docs/DESIGN.md).
+
+Estado: **M6, instalador y actualizaciones**. Están completos todos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC).
+
+**Peticiones (M1)**
+- Editor de peticiones:
+  - método y URL, sincronizada con la tabla de parámetros;
+  - autorización Bearer, básica, clave de API, heredada, o conservada desde el archivo;
+  - cabeceras;
+  - cuerpo JSON/texto/XML, x-www-form-urlencoded o form-data de texto;
+  - ajustes: tiempo máximo, redirecciones y verificación TLS.
+- Envío desde el motor con `postman-runtime`, sin cabeceras de rastreo y con `User-Agent: Sendix/<versión>`.
+- Visor de respuesta: estado, estratos de tiempos, cuerpo, imágenes, cabeceras, cookies y la petición real enviada.
+- Historial en SQLite (`node:sqlite`), sin cuerpos de respuesta y **sin credenciales**.
+
+**Carpeta de trabajo (M2)**
+- Una carpeta tuya, lista para git:
+  - `sendix.workspace.json`;
+  - `collections/*.postman_collection.json` en formato v2.1;
+  - `environments/*.postman_environment.json`.
+- **Sin pérdidas:** al guardar, Sendix solo reescribe lo que cambió (método, URL, cabeceras, cuerpo, autorización, scripts y dos ajustes). Los ejemplos, las descripciones y las autorizaciones o cuerpos que aún no edita (OAuth 2.0, GraphQL, archivos…) se conservan tal cual y se envían igual. Guardar una petición sin cambios deja el archivo idéntico.
+- Árbol de colecciones con carpetas: nueva petición o carpeta, renombrar, duplicar y eliminar. `Ctrl S` guarda; una petición nueva pide colección y carpeta.
+- **Variables:**
+  - `{{variables}}` de entorno y de colección; las del entorno tienen prioridad, como en Postman;
+  - se resaltan en la URL (en rojo si no tienen valor);
+  - se resuelven en la vista previa;
+  - la autorización y las variables se heredan de la colección y de cada carpeta.
+- **Secretos:** las variables secretas se cifran con el sistema operativo (`safeStorage`, DPAPI en Windows) en el perfil del usuario y **nunca se escriben en la carpeta**. La interfaz no recibe nunca su valor; el proceso principal lo añade solo al enviar.
+- **Importar:**
+  - colecciones de Postman v2.0/v2.1 y entornos;
+  - OpenAPI 3/Swagger 2 en JSON o YAML, convertido en el motor aislado;
+  - capturas HAR, de las que se quitan las cookies y las cabeceras `Authorization`;
+  - pegar un comando `curl` en la URL lo convierte en la petición.
+
+**Scripts y tests (M3)**
+- Scripts **antes de la petición** y **después de la respuesta** con la API `pm.*` de Postman (`pm.test`, `pm.expect`, `pm.response`, `pm.environment`, `pm.collectionVariables`, `pm.iterationData`, `pm.sendRequest`…), ejecutados por `postman-runtime` en el motor aislado.
+  - Editor CodeMirror con resaltado, autocompletado de `pm.*` y de nombres de variables, y fragmentos frecuentes.
+  - Los scripts de la colección y de cada carpeta se ejecutan antes que los de la petición, como en Postman.
+  - Si el script de antes de la petición falla, la petición no se envía.
+- Pestañas **Tests** (pasa/falla con el motivo) y **Consola** (`console.log`, `warn`, `error`) en la respuesta.
+- **Variables de sesión:** lo que guardan `pm.environment.set` y `pm.collectionVariables.set` se usa en las siguientes peticiones, pero dura solo hasta cerrar Sendix y **no se escribe en los archivos**. La barra de estado avisa cuando hay valores de sesión y permite olvidarlos.
+- Los valores de las variables secretas se ocultan (`••••••••`) en la consola y en los mensajes de los tests.
+- **Ejecutor de colecciones:** ejecuta una colección o una carpeta en orden, con iteraciones, retraso entre peticiones y un archivo de datos **CSV o JSON** (cada fila alimenta una iteración: `{{columna}}` o `pm.iterationData.get("columna")`). Muestra el progreso, los tests y el detalle de cada petición, con filtro de fallos.
+- Aún no se admiten `pm.execution.setNextRequest` / `postman.setNextRequest` en el ejecutor: el orden es siempre el de la colección.
+
+**Tiempo real (M4)**
+- Conexiones **WebSocket** (`ws`) y **Socket.IO** (`socket.io-client`, servidores v3 y v4) desde el selector de método de una pestaña nueva.
+  - WebSocket: cabeceras, subprotocolos, mensajes de texto y binarios, códigos de cierre explicados.
+  - Socket.IO: ruta del servidor, `auth` del saludo en JSON, cualquier evento recibido y `emit` con evento y *ack*.
+- Registro de mensajes enviados y recibidos con hora, tamaño, filtro, búsqueda y detalle (JSON formateado o volcado hexadecimal).
+- `{{variables}}` en la URL, las cabeceras, `auth` y los mensajes, resueltas al conectar y al enviar; los secretos se ocultan en el registro.
+- Reconexión opcional con espera creciente cuando la conexión se corta (nunca si la cierras tú) y tabla de las últimas conexiones.
+- Mensajes guardados por conexión. Las conexiones se guardan en la colección como items v2.1 con `request` (URL y cabeceras) y un campo `x-sendix` que otras herramientas ignoran.
+- Si el motor se reinicia, las conexiones abiertas se cierran en la interfaz con un aviso en vez de quedarse colgadas.
+
+**gRPC (M5)**
+- Llamadas con `@grpc/grpc-js` y `protobufjs` desde el selector de protocolo: **unarias, stream del servidor, stream del cliente y bidireccionales**.
+- Definición por **reflexión del servidor** (v1 y v1alpha) o con **archivos `.proto`** y rutas de importación; los tipos de Google (`Timestamp`, `Any`…) vienen incluidos.
+- Lista de servicios y métodos con sus tipos, **mensaje de ejemplo** generado desde el esquema y comprobación de campos antes de llamar (un campo que no existe no se descarta en silencio).
+- Metadatos (también `-bin` en base64), TLS verificado, TLS sin verificar para pruebas, **mTLS** con CA, certificado y clave propios, y *deadline*.
+- Respuesta con el estado gRPC explicado, cabeceras, *trailers* y el registro de mensajes de los streams.
+- `{{variables}}` en la dirección, los metadatos y los mensajes.
+- Se guardan en la colección como items v2.1 con campo `x-sendix`.
+
+**Instalador y actualizaciones (M6)**
+- Logo: la barra de tiempos de Sendix terminada en una flecha de envío, entre llaves, sobre la piedra oscura de protohub. Se genera con `python -I build/logo.py` (`build/icon.png`, `build/icon.ico` y `docs/logo.svg`).
+- Instalador NSIS por usuario (sin permisos de administrador), con carpeta elegible y acceso directo. El `.exe` lleva icono y datos de versión, y el renderer va minificado.
+- **Actualizaciones automáticas** con `electron-updater` desde las versiones publicadas en GitHub: la versión instalada busca unos segundos después de arrancar y cuando se lo pides en la pestaña Sistema, descarga en segundo plano y se instala al reiniciar (botón «Reiniciar para actualizar») o al cerrar. Las compilaciones de desarrollo nunca se actualizan.
+- **Publicar una versión:** sube la versión en `package.json` y crea la etiqueta `vX.Y.Z`. El flujo `.github/workflows/release.yml` comprueba que la etiqueta coincide, ejecuta `npm run check`, genera el instalador y deja un borrador de release con el `.exe`, su `.sha256`, el `.blockmap` y `latest.yml`. Tiene un paso de firma con SignPath que solo se ejecuta si existe el secreto `SIGNPATH_API_TOKEN`.
+
+## Requisitos
+
+- Node.js 22.12 o superior (probado con 24.22) y npm 11.
+- Windows 10/11 x64 para empaquetar.
+
+```bash
+npm install
+```
+
+npm 11 bloquea los scripts de instalación que no están aprobados. `package.json` → `allowScripts` aprueba el de `electron`, que descarga el binario, y deniega el de `electron-winstaller`, que no se usa porque el instalador es NSIS.
+
+## Scripts
+
+| Script | Qué hace |
+|---|---|
+| `npm run dev` | App con recarga en caliente (servidor de Vite y CSP de desarrollo) |
+| `npm run build` | Compila main, motor, preload y renderer en `out/` |
+| `npm run start` | Ejecuta la compilación de `out/` |
+| `npm run typecheck` | TypeScript estricto en los tres proyectos: node, web y e2e |
+| `npm test` | Tests unitarios (Vitest) |
+| `npm run test:e2e` | Compila y arranca Electron real con Playwright |
+| `npm run check` | Todo lo anterior |
+| `npm run dist` | Instalador NSIS y `latest.yml` en `release/<versión>/` |
+
+## Arquitectura
+
+```
+src/
+├─ main/       proceso principal: ventana, protocolo app://, seguridad, host del motor, router IPC
+├─ engine/     utilityProcess: gestor de proveedores (manifiestos), servidor RPC, proveedores
+├─ preload/    puente mínimo window.sendix (sandbox + contextIsolation)
+├─ renderer/   React 19, tokens del diseño aprobado, fuentes autoalojadas
+└─ shared/     contratos zod: sobres RPC (rpc.ts), métodos (methods.ts), canales IPC (ipc.ts)
+```
+
+Una llamada recorre este camino:
+
+1. `window.sendix.engine.call(método, params)`
+2. El main comprueba el remitente, que el método esté en `methods.ts` y los parámetros (zod).
+3. La llamada viaja por un MessagePort hasta el motor.
+4. El motor vuelve a validar y ejecuta el proveedor.
+5. El motor valida el resultado y el main lo valida otra vez antes de devolverlo.
+
+Errores siempre como `{ ok: false, error: { code, message } }`, nunca excepciones.
+
+**Proveedores.** Para añadir uno, crea `src/engine/providers/<nombre>.ts` con su manifiesto (`name`, `methods`, `dependsOn`), regístralo en `src/engine/index.ts` y declara sus métodos con contratos en `src/shared/methods.ts`.
+
+**Motor resistente.** Si el motor muere, el main lo reinicia con espera creciente (250 ms → 5 s). Las llamadas pendientes reciben `ENGINE_EXITED`. Si cae más de 5 veces en 60 s, queda en estado `failed`.
+
+## Seguridad (verificada)
+
+| Medida | Cómo se comprueba |
+|---|---|
+| `contextIsolation`, `sandbox`, sin `nodeIntegration`, sin `webviewTag` | E2E lee las preferencias aplicadas |
+| UI servida desde `app://sendix` con CSP estricta (`default-src 'none'`, sin `unsafe-eval`) | E2E: `eval` bloqueado y origen correcto |
+| Sin ventanas emergentes ni navegación fuera de la app; todos los permisos web denegados | E2E: `window.open` y cambio de `location` |
+| Scripts de colecciones ejecutados solo en el motor (`utilityProcess`), con 30 s de tiempo máximo por script; la interfaz recibe resultados ya validados con zod y con los secretos ocultos | unitarios del proveedor HTTP |
+| El motor solo lee los `.proto` y certificados que eliges en un diálogo o que usa una llamada gRPC guardada en la carpeta de trabajo | E2E: una ruta no elegida se rechaza con `FORBIDDEN` |
+| El editor de código vive en un shadow root con hojas de estilo construidas: la CSP sigue sin permitir estilos en línea | E2E: el editor se ve con sus estilos con la CSP de producción |
+| IPC solo desde el marco principal de la app; métodos de prueba solo con `SENDIX_TEST=1` en builds sin empaquetar | E2E + unitarios |
+| Rutas de `app://` sin escapar de la carpeta del renderer | unitarios (incluye `..%5c`) |
+| Fuses empaquetados: RunAsNode, NODE_OPTIONS e `--inspect` desactivados; integridad del asar y solo `app.asar` activados; cookies cifradas; sin privilegios extra de `file://` | Lectura de los bytes de fuses del `Sendix.exe` empaquetado |
+| Integridad del asar aplicada | Un `app.asar` modificado no arranca (sale con 0x80000003) |
+
+## Problemas conocidos
+
+- **Dependencias de `postman-runtime` con avisos de `npm audit`** (handlebars, faker, node-forge, qs, uuid). Son transitivas y no tienen arreglo sin forzar versiones incompatibles. Se ejecutan solo dentro del motor aislado. Revisar en cada actualización de `postman-runtime`; se fijó la 7.56.1, la más reciente con más de dos semanas.
+- **El instalador no está firmado.** Windows SmartScreen puede avisar al ejecutarlo la primera vez («Más información» → «Ejecutar de todas formas»). Comprueba antes el SHA-256 publicado junto al instalador.
+- El paso de electron-builder que escribe el icono y la versión en `Sendix.exe` fallaba en algunos equipos con `UNKNOWN: unknown error, open …\Sendix.exe` (un bloqueo breve del archivo recién escrito). Por eso ese paso está desactivado (`signAndEditExecutable: false`) y lo hace `build/after-pack.cjs` antes de aplicar los fuses, reintentando mientras el archivo siga bloqueado.
+
+## Cómo se desarrolla
+
+Sendix lo diseña y dirige Luis E. Bautista. El código, los tests y la documentación se escriben con la ayuda de Claude (Anthropic) como asistente de programación. Cada cambio se revisa y se prueba antes de integrarlo.
+
+## Licencia
+
+MIT. Ver [LICENSE](LICENSE).

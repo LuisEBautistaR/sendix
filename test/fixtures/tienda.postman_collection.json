@@ -1,0 +1,75 @@
+{
+  "info": {
+    "_postman_id": "0f3b1c2d-1111-4a5b-9c8d-000000000001",
+    "name": "Tienda demo",
+    "description": "Colección sintética para los tests de Sendix.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "base", "value": "http://127.0.0.1:9", "type": "string" },
+    { "key": "categoria", "value": "cafe", "type": "string" },
+    { "key": "viejo", "value": "x", "disabled": true }
+  ],
+  "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["// script de la colección"] } }],
+  "item": [
+    {
+      "name": "Productos",
+      "description": "Carpeta con su propia autorización",
+      "auth": { "type": "apikey", "apikey": [{ "key": "key", "value": "X-Clave" }, { "key": "value", "value": "{{clave}}" }, { "key": "in", "value": "header" }] },
+      "item": [
+        {
+          "name": "Listar productos",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json", "type": "text" },
+              { "key": "X-Debug", "value": "1", "disabled": true, "description": "solo pruebas" }
+            ],
+            "url": {
+              "raw": "{{base}}/productos?categoria={{categoria}}",
+              "host": ["{{base}}"],
+              "path": ["productos"],
+              "query": [
+                { "key": "categoria", "value": "{{categoria}}" },
+                { "key": "pagina", "value": "2", "disabled": true, "description": "desactivado" }
+              ]
+            },
+            "description": "Lista paginada"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('ok', () => pm.response.to.have.status(200));"] } }],
+          "response": [{ "name": "Ejemplo 200", "status": "OK", "code": 200, "body": "{\"total\":1}" }]
+        },
+        {
+          "name": "Subir foto",
+          "request": {
+            "method": "POST",
+            "url": "{{base}}/productos/1/foto",
+            "body": { "mode": "formdata", "formdata": [{ "key": "foto", "type": "file", "src": "foto.png" }, { "key": "alt", "value": "Bolsa", "type": "text" }] }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Crear pedido",
+      "request": {
+        "method": "POST",
+        "header": "Content-Type: application/json\nX-Origen: tests",
+        "url": "{{base}}/pedidos",
+        "auth": { "type": "oauth2", "oauth2": [{ "key": "grant_type", "value": "client_credentials" }] },
+        "body": { "mode": "raw", "raw": "{\"producto\":\"prd_1\"}", "options": { "raw": { "language": "json" } } }
+      },
+      "protocolProfileBehavior": { "followRedirects": false, "disableBodyPruning": true },
+      "response": []
+    },
+    {
+      "name": "Salud",
+      "request": { "method": "GET", "url": "{{base}}/salud", "auth": { "type": "noauth" } },
+      "response": []
+    }
+  ]
+}
