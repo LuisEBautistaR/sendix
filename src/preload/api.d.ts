@@ -7,6 +7,7 @@ import type { RunConfig, RunEvent, RunRecord, RunSummary } from "../shared/runne
 import type { RealtimeEvent } from "../shared/realtime";
 import type { GrpcEvent } from "../shared/grpc";
 import type { Prefs } from "../shared/prefs";
+import type { LinkedRequest } from "../shared/links";
 
 /** What the preload exposes to the renderer as window.sendix. Nothing else crosses the bridge. */
 export interface SendixApi {
@@ -38,6 +39,19 @@ export interface SendixApi {
     /** Which of those secrets are saved; their values never reach the page. */
     secrets(): Promise<{ proxyPassword: boolean; certPassphrases: string[] } | null>;
     onChanged(listener: (prefs: Prefs) => void): () => void;
+  };
+  links: {
+    /** sendix:// links that arrived before the window listened (e.g. the one that started the app). */
+    pending(): Promise<Array<{ id: string; request: LinkedRequest }> | null>;
+    /** Takes a link off the waiting list (the user answered); null if it was not waiting. */
+    decide(id: string): Promise<{ id: string; request: LinkedRequest } | null>;
+    onRequest(listener: (link: { id: string; request: LinkedRequest }) => void): () => void;
+  };
+  mockix: {
+    /** Whether Mockix registered mockix:// on this machine. */
+    available(): Promise<boolean>;
+    /** Asks Mockix to import the collection's v2.1 file; Mockix confirms with the user. */
+    importCollection(collectionId: string): Promise<{ ok: true } | { ok: false; message: string }>;
   };
   history: {
     list(): Promise<HistoryEntry[] | null>;

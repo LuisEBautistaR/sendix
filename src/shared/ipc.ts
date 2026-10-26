@@ -33,6 +33,11 @@ export const IpcChannels = {
   runsGet: "sendix:runs-get",
   runsDelete: "sendix:runs-delete",
   runsExport: "sendix:runs-export",
+  linksPending: "sendix:links-pending",
+  linkDecide: "sendix:link-decide",
+  linkRequest: "sendix:link-request",
+  mockixAvailable: "sendix:mockix-available",
+  mockixImport: "sendix:mockix-import",
 } as const;
 
 export interface UpdateState {

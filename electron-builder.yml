@@ -23,6 +23,12 @@ electronFuses:
 # signAndEditExecutable step, which fails here on a transient file lock (see the hook).
 afterPack: build/after-pack.cjs
 
+# sendix:// for links from Mockix («Abrir en Sendix»). build/installer.nsh registers it
+# for the current user and removes it on uninstall only if it still points here.
+protocols:
+  - name: Sendix
+    schemes: [sendix]
+
 # Auto-update from GitHub Releases (electron-updater): the app checks on start and from the Sistema tab.
 publish:
   provider: github

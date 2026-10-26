@@ -6,7 +6,7 @@ Cliente de API de escritorio, local primero y compatible con colecciones Postman
 
 **¿Primera vez?** Empieza por la [guía rápida](docs/GUIA-RAPIDA.md) (también en [protohub.digital/sendix/guia](https://protohub.digital/sendix/guia/)). Cada función se explica en el [manual de uso](docs/MANUAL.md).
 
-Estado: **0.2.1**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC) y los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red).
+Estado: **0.3.0**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC), los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red) y la integración con Mockix.
 
 **Peticiones (M1)**
 - Editor de peticiones:
@@ -137,6 +137,24 @@ Estado: **0.2.1**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.
 - El cuerpo de la petición usa el editor de código: resalta JSON, XML, HTML y JavaScript, marca las `{{variables}}` y respeta la sangría de Ajustes.
 - El divisor entre la petición y la respuesta se arrastra (entre el 25 % y el 75 % del ancho). Se guarda en Ajustes, admite flechas del teclado y con doble clic vuelve al original.
 
+**Integración con Mockix**
+- **`sendix://` (de Mockix a Sendix):** el botón «Sendix» del editor de rutas de Mockix («Abrir esta petición en Sendix») abre `sendix://request?method=…&url=…[&headers=<JSON>][&body=…]`.
+  - **Registro:** el instalador lo registra para el usuario (`build/installer.nsh`) y la app lo vuelve a registrar al arrancar empaquetada (`app.setAsDefaultProtocolClient`). Al desinstalar, el registro solo se borra si sigue apuntando a esa instalación.
+  - **Llegada del enlace en Windows:** si Sendix ya está abierto, llega por el `argv` de la segunda instancia (instancia única); si lo arranca el enlace, por su propio `argv`.
+  - **Validación (zod, `src/shared/links.ts`):**
+    - métodos GET, POST, PUT, PATCH, DELETE, HEAD u OPTIONS;
+    - URL `http(s)`;
+    - hasta 50 cabeceras con nombres válidos;
+    - cuerpo de hasta 64 KB;
+    - sin parámetros repetidos.
+
+    Un enlace inválido se descarta sin preguntar.
+  - **Confirmación:** Sendix muestra la petición (método, URL, cabeceras y cuerpo). Solo si la aceptas la abre en una **pestaña nueva sin guardar**; nada se envía hasta que pulsas Enviar.
+- **«Crear mock desde esta colección» (de Sendix a Mockix):** está en el menú de cada colección y solo aparece si Mockix registró `mockix://` en el equipo (`app.getApplicationNameForProtocol`).
+  - Abre `mockix://import?collection=<archivo .json>` con `shell.openExternal`. El archivo es el v2.1 de la carpeta de trabajo, ya guardado en disco.
+  - Añade `&workspace=<carpeta>` solo si esa carpeta es también un workspace de Mockix (tiene `mockix.workspace.yaml`); si no, Mockix importa en el workspace que tenga abierto.
+  - Mockix valida el enlace y pide confirmación antes de importar.
+
 ## Requisitos
 
 - Node.js 22.12 o superior (probado con 24.22) y npm 11.
@@ -197,6 +215,7 @@ Errores siempre como `{ ok: false, error: { code, message } }`, nunca excepcione
 | El motor solo lee los `.proto` y certificados que eliges en un diálogo o que usa una llamada gRPC guardada en la carpeta de trabajo | E2E: una ruta no elegida se rechaza con `FORBIDDEN` |
 | La vista previa de HTML no ejecuta scripts ni pide nada a la red (iframe con `sandbox`, CSP propia y navegación de subframes bloqueada) | E2E: el script no corre y la imagen externa no se pide |
 | El motor solo lee la CA y los certificados de cliente elegidos en un diálogo de Ajustes, y los recibe en memoria; las contraseñas del proxy y de los certificados se cifran y nunca llegan a la interfaz | E2E: CA, mTLS y proxy con autenticación contra servidores locales de prueba |
+| Los enlaces `sendix://` se validan con zod y solo abren una pestaña tras confirmarlo; los inválidos se descartan | unitarios del parseo + E2E (enlace con la app abierta, al arrancar e inválido) |
 | El editor de código vive en un shadow root con hojas de estilo construidas: la CSP sigue sin permitir estilos en línea | E2E: el editor se ve con sus estilos con la CSP de producción |
 | IPC solo desde el marco principal de la app; métodos de prueba solo con `SENDIX_TEST=1` en builds sin empaquetar | E2E + unitarios |
 | Rutas de `app://` sin escapar de la carpeta del renderer | unitarios (incluye `..%5c`) |

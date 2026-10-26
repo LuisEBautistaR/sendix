@@ -225,6 +225,13 @@ export class Workspace {
     return this.#queue(c.file, () => serialize(c.json));
   }
 
+  /** Absolute path of a collection's v2.1 file, once any pending save of it has reached the disk. */
+  async collectionFile(id: string): Promise<string> {
+    const c = this.#collection(id);
+    await (this.#writes.get(c.file) ?? Promise.resolve()).catch(() => {});
+    return join(this.path, c.file);
+  }
+
   #collection(id: string): Loaded {
     const c = this.#collections.get(id);
     if (!c) throw new WorkspaceError("NOT_FOUND", "La colección ya no existe");

@@ -13,7 +13,8 @@ export interface Launched {
 }
 
 /** Starts the built app with a throwaway profile (history included). */
-export async function launch(testMode = true): Promise<Launched> {
+/** `extraArgs` go after the app path, as Windows passes a sendix:// link. */
+export async function launch(testMode = true, extraArgs: string[] = []): Promise<Launched> {
   const userData = mkdtempSync(join(tmpdir(), "sendix-e2e-"));
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
   delete env["ELECTRON_RENDERER_URL"];
@@ -22,7 +23,7 @@ export async function launch(testMode = true): Promise<Launched> {
     env["SENDIX_USER_DATA"] = userData;
   } else delete env["SENDIX_TEST"];
   // Own profile also outside test mode, so an installed Sendix that is open does not hold the single-instance lock.
-  const app = await electron.launch({ args: [`--user-data-dir=${userData}`, "."], cwd: root, env });
+  const app = await electron.launch({ args: [`--user-data-dir=${userData}`, ".", ...extraArgs], cwd: root, env });
   const win = await app.firstWindow();
   await expect(win.locator(".statusbar .engine-dot")).toHaveText("Motor listo", { timeout: 20_000 });
   return {

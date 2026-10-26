@@ -10,6 +10,7 @@ import type { RunEvent } from "@shared/runner";
 import type { RealtimeEvent } from "@shared/realtime";
 import type { GrpcEvent } from "@shared/grpc";
 import type { Prefs } from "@shared/prefs";
+import type { LinkedRequest } from "@shared/links";
 
 const api: SendixApi = {
   engine: {
@@ -45,6 +46,19 @@ const api: SendixApi = {
       ipcRenderer.on(IpcChannels.prefsChanged, handler);
       return () => ipcRenderer.removeListener(IpcChannels.prefsChanged, handler);
     },
+  },
+  links: {
+    pending: () => ipcRenderer.invoke(IpcChannels.linksPending),
+    decide: (id) => ipcRenderer.invoke(IpcChannels.linkDecide, id),
+    onRequest: (listener) => {
+      const handler = (_event: IpcRendererEvent, link: { id: string; request: LinkedRequest }) => listener(link);
+      ipcRenderer.on(IpcChannels.linkRequest, handler);
+      return () => ipcRenderer.removeListener(IpcChannels.linkRequest, handler);
+    },
+  },
+  mockix: {
+    available: () => ipcRenderer.invoke(IpcChannels.mockixAvailable),
+    importCollection: (collectionId) => ipcRenderer.invoke(IpcChannels.mockixImport, collectionId),
   },
   history: {
     list: () => ipcRenderer.invoke(IpcChannels.historyList),

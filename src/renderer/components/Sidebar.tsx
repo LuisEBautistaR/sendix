@@ -278,6 +278,10 @@ function ItemMenu({ target, close, startRename }: { target: MenuTarget; close():
 
   const { collectionId, node } = target;
   const parentId = node === null ? null : node.kind === "folder" ? node.id : null;
+  const [mockix, setMockix] = useState(false);
+  useEffect(() => {
+    if (node === null) void window.sendix.mockix.available().then(setMockix);
+  }, [node]);
   const run = (fn: () => Promise<unknown>) => () => {
     close();
     void fn().catch(fail);
@@ -298,6 +302,13 @@ function ItemMenu({ target, close, startRename }: { target: MenuTarget; close():
     else await ws("deleteCollection", { collectionId });
   });
 
+  // Mockix: only offered when it registered mockix:// on this machine. Mockix asks before importing.
+  const createMock = run(async () => {
+    const result = await window.sendix.mockix.importCollection(collectionId);
+    if (result.ok) useStore.getState().notify("ok", "Se abrió Mockix: confirma allí la importación de la colección.");
+    else useStore.getState().notify("err", result.message);
+  });
+
   const items: Array<[string, () => void, boolean?]> = [
     ...(node === null || node.kind === "folder"
       ? ([
@@ -308,6 +319,7 @@ function ItemMenu({ target, close, startRename }: { target: MenuTarget; close():
     ...(node === null || node.kind === "folder"
       ? ([["Ejecutar…", () => (close(), useStore.getState().openRunner(collectionId, node ? node.id : null))]] as Array<[string, () => void]>)
       : []),
+    ...(node === null && mockix ? ([["Crear mock desde esta colección", createMock]] as Array<[string, () => void]>) : []),
     ["Renombrar", () => (close(), startRename(node ? node.id : `c:${collectionId}`))],
     ...(node ? ([["Duplicar", run(() => ws("duplicateItem", { collectionId, itemId: node.id }))]] as Array<[string, () => void]>) : []),
     [node ? "Eliminar" : "Eliminar colección", remove, true],

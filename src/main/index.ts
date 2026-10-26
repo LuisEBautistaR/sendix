@@ -17,6 +17,8 @@ import { RealtimeRelay } from "./realtime";
 import { GrpcFiles } from "./grpc-files";
 import { createMainWindow } from "./window";
 import { registerPreviews } from "./preview";
+import { LinkService } from "./links";
+import { linkFromArgv } from "@shared/links";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
 const devUrl = !app.isPackaged ? (process.env["ELECTRON_RENDERER_URL"] ?? null) : null;
@@ -41,11 +43,26 @@ if (!app.requestSingleInstanceLock()) {
   let history: HistoryStore | null = null;
   let runs: RunStore | null = null;
   let mainWindow: BrowserWindow | null = null;
+  let links: LinkService | null = null;
+  // A sendix:// link that started the app (Windows passes it as an argument), handled once main is ready.
+  let startLink = linkFromArgv(process.argv);
 
-  app.on("second-instance", () => {
+  // Windows: a link clicked while Sendix runs starts a second instance that hands its argv here.
+  app.on("second-instance", (_event, argv) => {
+    const link = linkFromArgv(argv);
+    if (link) {
+      if (links) links.handle(link);
+      else startLink = link;
+    }
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
+  });
+  // macOS delivers links as an event instead.
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    if (links) links.handle(url);
+    else startLink = url;
   });
 
   app.whenReady().then(async () => {
@@ -64,6 +81,9 @@ if (!app.requestSingleInstanceLock()) {
     registerPreviews();
     const workspaces = new WorkspaceController(settings, secrets, engine);
     workspaces.register();
+    LinkService.registerProtocol();
+    links = new LinkService(workspaces, broadcast, (m, d) => log(m, d));
+    links.register();
     const grpcFiles = new GrpcFiles(workspaces);
     grpcFiles.register();
     registerRpcRouter(engine, history, workspaces, new RealtimeRelay(engine), grpcFiles, prefs, testMode);
@@ -74,6 +94,10 @@ if (!app.requestSingleInstanceLock()) {
     await workspaces.restoreLast();
     mainWindow = createMainWindow(join(mainDir, "../preload/index.cjs"), devUrl);
     mainWindow.on("closed", () => (mainWindow = null));
+    if (startLink) {
+      links.handle(startLink);
+      startLink = null;
+    }
     updates.start();
   });
 

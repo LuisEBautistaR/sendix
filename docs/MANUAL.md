@@ -20,7 +20,7 @@ Sendix es un cliente de API para Windows: envías peticiones HTTP, conectas por 
 12. [gRPC](#12-grpc)
 13. [Ajustes](#13-ajustes)
 14. [Red: proxy y certificados](#14-red-proxy-y-certificados)
-15. [Con Mockix](#15-con-mockix) (próxima versión)
+15. [Con Mockix](#15-con-mockix)
 16. [Historial y datos de este equipo](#16-historial-y-datos-de-este-equipo)
 17. [Atajos de teclado](#17-atajos-de-teclado)
 18. [Problemas frecuentes](#18-problemas-frecuentes)
@@ -291,11 +291,9 @@ El certificado solo se envía a ese host y puerto. Sendix solo lee los archivos 
 
 ## 15. Con Mockix
 
-> **A partir de la próxima versión.** La 0.2.1 todavía no incluye esta integración.
-
 [Mockix](https://protohub.digital/mockix/) simula APIs; las dos apps se hablan con enlaces y siempre piden confirmación.
 
-- **De Mockix a Sendix:** en Mockix, **Abrir en Sendix** abre una petición del log.
+- **De Mockix a Sendix:** en Mockix, abre una ruta con el mock en marcha y pulsa el botón **Sendix** («Abrir esta petición en Sendix»), junto a **Probar**.
   - Sendix muestra método, URL, cabeceras y cuerpo, y pregunta **¿Abrir esta petición?**
   - Si aceptas, se abre en una pestaña nueva sin guardar; nada se envía hasta que pulses **Enviar**.
 - **De Sendix a Mockix:** en el menú de una colección, **Crear mock desde esta colección**.
