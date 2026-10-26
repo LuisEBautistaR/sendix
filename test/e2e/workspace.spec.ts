@@ -148,6 +148,7 @@ test("imports an OpenAPI definition and pastes a curl command", async () => {
   try {
     await pick(app, spec);
     await win.getByTestId("import").click();
+    await win.getByTestId("import-file").click();
     await expect(win.getByTestId("tree")).toContainText("Inventario");
     await expect(win.getByTestId("toast").first()).toContainText("Importado «Inventario»: 1 peticiones");
   } finally {
@@ -168,4 +169,73 @@ test("imports an OpenAPI definition and pastes a curl command", async () => {
   await expect(body).toContainText('"method": "POST"');
   await expect(body).toContainText('"authorization": "Basic YW5hOnB3"');
   await expect(body).toContainText('"body": "{\\"a\\":1}"');
+});
+
+test("copies a saved request as cURL with its inherited auth, hiding the secret unless asked", async () => {
+  const { win, app } = s;
+  await openWorkspace(win);
+  await win.getByTestId("rail-environments").click();
+  await win.getByTestId("new-environment").click();
+  await win.getByTestId("environment-name").fill("Desarrollo");
+  await win.getByTestId("env-key-0").fill("clave");
+  await win.getByTestId("env-secret-0").check();
+  await win.getByTestId("env-value-0").fill("k-secreta-123");
+  await win.getByTestId("env-key-1").fill("categoria");
+  await win.getByTestId("env-value-1").fill("te");
+  await win.getByTestId("environment-save").click();
+  await win.getByTestId("environment-select").selectOption({ label: "Desarrollo" });
+  await win.getByTestId("rail-collections").click();
+
+  // From the request's menu in the tree.
+  const folder = win.getByTestId("tree-folder").filter({ hasText: "Productos" });
+  if (!(await win.getByTestId("tree-request").filter({ hasText: "Listar productos" }).isVisible())) await folder.locator(".tree-main").click();
+  await win.getByTestId("tree-request").filter({ hasText: "Listar productos" }).hover();
+  await win.getByRole("button", { name: "Acciones de Listar productos" }).click();
+  await win.getByRole("menuitem", { name: "Copiar como cURL" }).click();
+  const dialog = win.getByTestId("curl-dialog");
+  await expect(dialog).toBeVisible();
+  await win.getByTestId("curl-shell-bash").click();
+  const preview = win.getByTestId("curl-preview");
+  await expect(preview).toContainText(`curl '${server.url}/echo?categoria=te'`);
+  await expect(preview).toContainText("-H 'X-Clave: {{clave}}'"); // the folder's API key, its secret left out
+  await expect(preview).not.toContainText("k-secreta-123");
+  await expect(win.getByTestId("curl-notes")).toContainText("{{clave}}");
+  await expect(win.getByTestId("curl-notes")).toContainText("scripts");
+  await win.screenshot({ path: resolve(shots, "curl-dialog.png") });
+  await win.getByTestId("curl-copy").click();
+  await expect(dialog).toBeHidden();
+  const copied = await app.evaluate(({ clipboard }) => clipboard.readText());
+  expect(copied).toBe([`curl '${server.url}/echo?categoria=te' \\`, "  -H 'X-Clave: {{clave}}' \\", "  -H 'Accept: application/json' \\", "  -L"].join("\n"));
+
+  // From the request line, with secrets: they reach the clipboard but never the window.
+  await win.getByTestId("copy-curl").click();
+  await expect(dialog).toBeVisible();
+  await expect(win.getByTestId("curl-secrets")).not.toBeChecked();
+  await win.getByTestId("curl-secrets").check(); // the confirmation is accepted by the dialog handler
+  await expect(preview).not.toContainText("k-secreta-123");
+  await win.getByTestId("curl-shell-powershell").click();
+  await expect(preview).toContainText("curl.exe --config $file");
+  await win.getByTestId("curl-copy").click();
+  const withSecret = await app.evaluate(({ clipboard }) => clipboard.readText());
+  expect(withSecret).toContain('header = "X-Clave: k-secreta-123"');
+  expect(await win.locator("body").innerText()).not.toContain("k-secreta-123");
+  await app.evaluate(({ clipboard }) => clipboard.clear());
+});
+
+test("imports a cURL command copied from the browser for cmd, from the Import menu", async () => {
+  const { win } = s;
+  await openWorkspace(win);
+  await win.getByTestId("import").click();
+  await win.getByTestId("import-curl").click();
+  await expect(win.getByTestId("curl-import-dialog")).toBeVisible();
+  const cmd = [`curl ^"${server.url}/echo?q=1^&r=2^" ^`, `  -H ^"accept: application/json^" ^`, `  --data-raw ^"^{^\\^"nombre^\\^":^\\^"Ana 100^%^\\^"^}^"`].join("\n");
+  await win.getByTestId("curl-import-text").fill(cmd);
+  await win.getByTestId("curl-import-open").click();
+  await expect(win.getByTestId("curl-import-dialog")).toBeHidden();
+  await expect(win.getByTestId("url")).toHaveValue(`${server.url}/echo?q=1&r=2`);
+  await expect(win.getByTestId("method")).toHaveValue("POST");
+  await win.getByTestId("send").click();
+  const body = win.getByTestId("response-body");
+  await expect(body).toContainText('"accept": "application/json"');
+  await expect(body).toContainText('"body": "{\\"nombre\\":\\"Ana 100%\\"}"');
 });

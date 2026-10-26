@@ -6,7 +6,7 @@ Cliente de API de escritorio, local primero y compatible con colecciones Postman
 
 **¿Primera vez?** Empieza por la [guía rápida](docs/GUIA-RAPIDA.md) (también en [protohub.digital/sendix/guia](https://protohub.digital/sendix/guia/)). Cada función se explica en el [manual de uso](docs/MANUAL.md).
 
-Estado: **0.3.1**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC), los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red) y la integración con Mockix.
+Estado: **0.4.0**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC), los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red), la integración con Mockix y «Copiar como cURL».
 
 **Peticiones (M1)**
 - Editor de peticiones:
@@ -36,7 +36,7 @@ Estado: **0.3.1**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.
   - colecciones de Postman v2.0/v2.1 y entornos;
   - OpenAPI 3/Swagger 2 en JSON o YAML, convertido en el motor aislado;
   - capturas HAR, de las que se quitan las cookies y las cabeceras `Authorization`;
-  - pegar un comando `curl` en la URL lo convierte en la petición.
+  - un comando `curl` (de bash, cmd o PowerShell), pegado en la URL o en **Importar → Comando cURL…**, se convierte en la petición.
 
 **Scripts y tests (M3)**
 - Scripts **antes de la petición** y **después de la respuesta** con la API `pm.*` de Postman (`pm.test`, `pm.expect`, `pm.response`, `pm.environment`, `pm.collectionVariables`, `pm.iterationData`, `pm.sendRequest`…), ejecutados por `postman-runtime` en el motor aislado.
@@ -155,6 +155,28 @@ Estado: **0.3.1**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.
   - Añade `&workspace=<carpeta>` solo si esa carpeta es también un workspace de Mockix (tiene `mockix.workspace.yaml`); si no, Mockix importa en el workspace que tenga abierto.
   - Mockix valida el enlace y pide confirmación antes de importar.
 
+**cURL (0.4)**
+- **Copiar como cURL:** está en el botón `>_` junto a Guardar y en el menú de cada petición HTTP del árbol.
+  - Escribe el comando para **bash** (Linux, macOS, Git Bash o WSL), **cmd** o **PowerShell**, y recuerda el último elegido.
+  - En PowerShell, las opciones se escriben en un texto literal (`@'…'@`). El comando lo guarda en un archivo temporal UTF-8 sin BOM, se lo pasa a `curl.exe --config` y lo borra al terminar.
+    - Así funciona igual en Windows PowerShell 5.1 y en PowerShell 7, por raras que sean las comillas, y los acentos llegan en UTF-8.
+    - No se usa una tubería, porque con la consola en UTF-8 Windows PowerShell antepone un BOM y curl rechaza la primera opción.
+  - Lo genera el proceso principal (`src/main/curl.ts`): usa la autorización heredada de la carpeta o la colección, y las variables de la colección y del entorno activo, como al enviar.
+  - **Secretos fuera por defecto:**
+    - las variables secretas quedan como `{{nombre}}`;
+    - el token, la contraseña, la clave de API y las cabeceras `Authorization`, `Proxy-Authorization` y `Cookie` salen como `<token>`, `<contraseña>`, `<clave>` u `<oculto>`.
+  - **Incluir secretos y credenciales:** hay que activarlo y confirmarlo cada vez. Entonces el proceso principal copia el comando completo directamente al portapapeles; la ventana solo ve la versión sin secretos.
+  - Avisa de lo que no puede llevar: scripts, OAuth 2.0 y otras autorizaciones que cURL no tiene, variables sin valor, variables dinámicas (`{{$guid}}`) y, en bash y cmd, caracteres no ASCII (curl de Windows puede cambiarles la codificación).
+  - Convierte Digest y NTLM (`--digest`/`--ntlm -u`), GraphQL (JSON), cuerpos de archivo y form-data con archivos (como rutas de este equipo), `-L`, `--max-redirs`, `-k` y `--max-time`.
+- **Importar un comando:** desde la URL o desde **Importar → Comando cURL…**.
+  - Entiende las comillas de bash, cmd (también el «Copy as cURL (cmd)» del navegador, con `^`) y PowerShell (`curl.exe` con acentos graves o el formato de configuración de arriba).
+  - Lee además `--digest`, `--ntlm`, `--oauth2-bearer`, `--form-string`, `--max-redirs`, `--url-query` y cabeceras vacías (`-H 'X;'`).
+  - Avisa en vez de ignorar en silencio: el proxy (`-x`), los certificados (`--cert`, `--key`, `--cacert`), que van en **Ajustes → Red y certificados**, los cuerpos y campos que vienen de un archivo y un archivo de cookies.
+- **Pruebas:**
+  - unitarias de ida y vuelta: un comando generado vuelve a dar la misma petición en los tres shells;
+  - una que ejecuta los comandos en cmd, Windows PowerShell y Git Bash reales contra un servidor local, con comillas, `$`, `%`, `^`, `!`, `&`, `|`, barras invertidas y saltos de línea;
+  - E2E del diálogo y del portapapeles.
+
 ## Requisitos
 
 - Node.js 22.12 o superior (probado con 24.22) y npm 11.
@@ -216,6 +238,7 @@ Errores siempre como `{ ok: false, error: { code, message } }`, nunca excepcione
 | La vista previa de HTML no ejecuta scripts ni pide nada a la red (iframe con `sandbox`, CSP propia y navegación de subframes bloqueada) | E2E: el script no corre y la imagen externa no se pide |
 | El motor solo lee la CA y los certificados de cliente elegidos en un diálogo de Ajustes, y los recibe en memoria; las contraseñas del proxy y de los certificados se cifran y nunca llegan a la interfaz | E2E: CA, mTLS y proxy con autenticación contra servidores locales de prueba |
 | Los enlaces `sendix://` se validan con zod y solo abren una pestaña tras confirmarlo; los inválidos se descartan | unitarios del parseo + E2E (enlace con la app abierta, al arrancar e inválido) |
+| «Copiar como cURL» deja fuera los secretos salvo que se pida y se confirme; aun así la ventana nunca los recibe (el proceso principal los copia al portapapeles) | unitarios + E2E: el secreto llega al portapapeles solo al pedirlo y nunca aparece en la ventana |
 | El editor de código vive en un shadow root con hojas de estilo construidas: la CSP sigue sin permitir estilos en línea | E2E: el editor se ve con sus estilos con la CSP de producción |
 | IPC solo desde el marco principal de la app; métodos de prueba solo con `SENDIX_TEST=1` en builds sin empaquetar | E2E + unitarios |
 | Rutas de `app://` sin escapar de la carpeta del renderer | unitarios (incluye `..%5c`) |

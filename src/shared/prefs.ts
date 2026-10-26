@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import type { HttpRequest } from "./http";
+import { CURL_SHELLS } from "./curl-export";
 
 export const THEMES = ["system", "light", "dark"] as const;
 export type Theme = (typeof THEMES)[number];
@@ -64,6 +65,8 @@ export const prefsSchema = z.object({
   network: networkSchema,
   ui: z.object({
     splitPercent: z.number().int().min(SPLIT_MIN).max(SPLIT_MAX),
+    /** The terminal «Copiar como cURL» writes for, last one picked. */
+    curlShell: z.enum(CURL_SHELLS),
   }),
 });
 export type Prefs = z.infer<typeof prefsSchema>;
@@ -73,7 +76,7 @@ export const DEFAULT_PREFS: Prefs = {
   editor: { fontSize: 12, tabSize: 2, closeBrackets: true },
   request: { timeoutMs: 30_000, verifyTls: true, followRedirects: true, maxResponseMb: 50, sendNoCache: false },
   network: { proxy: { mode: "none", server: "", username: "", bypass: "localhost, 127.0.0.1" }, caFile: null, clientCerts: [] },
-  ui: { splitPercent: SPLIT_DEFAULT },
+  ui: { splitPercent: SPLIT_DEFAULT, curlShell: "powershell" },
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);

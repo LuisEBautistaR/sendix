@@ -4,7 +4,9 @@ import type { CollectionSummary } from "@shared/workspace";
 import { emptyRequest, useStore, ws } from "../state/store";
 import { Icon } from "../Icon";
 import { HistoryList } from "./HistoryList";
-import { methodClass } from "./RequestPane";
+import { METHODS, methodClass } from "./RequestPane";
+
+const HTTP_METHODS = new Set<string>(METHODS);
 
 export function Sidebar() {
   const view = useStore((s) => s.sidebar);
@@ -57,16 +59,48 @@ type MenuTarget = { collectionId: string; node: TreeNode | null; x: number; y: n
 function CollectionsView() {
   const workspace = useStore((s) => s.workspace);
   const [menu, setMenu] = useState<MenuTarget | null>(null);
+  const [importAt, setImportAt] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const importFile = async () => {
+    try {
+      const result = await ws("importFile", {});
+      if (!result) return;
+      const what = result.kind === "environment" ? `entorno con ${result.count} variables` : `${result.count} peticiones`;
+      useStore.getState().notify("ok", `Importado «${result.name}»: ${what}.${result.notes.length ? ` ${result.notes.join(" ")}` : ""}`);
+      if (result.environmentId) useStore.getState().setSidebar("environments");
+    } catch (err) {
+      fail(err);
+    }
+  };
+  const importButton = (
+    <button
+      type="button"
+      className="icon-btn"
+      title="Importar: colección, entorno, OpenAPI, HAR o un comando cURL"
+      aria-label="Importar"
+      aria-haspopup="menu"
+      onClick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        setImportAt({ x: r.right, y: r.bottom });
+      }}
+      data-testid="import"
+    >
+      <Icon name="dl" size={14} />
+    </button>
+  );
+  const importMenu = importAt && <ImportMenu at={importAt} withFiles={Boolean(workspace)} close={() => setImportAt(null)} importFile={() => void importFile()} />;
 
   if (!workspace) {
     return (
       <>
         <div className="side-head">
           <h2>Colecciones</h2>
+          {importButton}
         </div>
         <OpenWorkspace />
+        {importMenu}
       </>
     );
   }
@@ -80,25 +114,12 @@ function CollectionsView() {
       fail(err);
     }
   };
-  const importFile = async () => {
-    try {
-      const result = await ws("importFile", {});
-      if (!result) return;
-      const what = result.kind === "environment" ? `entorno con ${result.count} variables` : `${result.count} peticiones`;
-      useStore.getState().notify("ok", `Importado «${result.name}»: ${what}.${result.notes.length ? ` ${result.notes.join(" ")}` : ""}`);
-      if (result.environmentId) useStore.getState().setSidebar("environments");
-    } catch (err) {
-      fail(err);
-    }
-  };
 
   return (
     <>
       <div className="side-head">
         <h2>Colecciones</h2>
-        <button type="button" className="icon-btn" title="Importar colección, entorno, OpenAPI o HAR" aria-label="Importar" onClick={() => void importFile()} data-testid="import">
-          <Icon name="dl" size={14} />
-        </button>
+        {importButton}
         <button type="button" className="icon-btn" title="Nueva colección" aria-label="Nueva colección" onClick={() => void createCollection()} data-testid="new-collection">
           <Icon name="plus" size={14} />
         </button>
@@ -131,6 +152,7 @@ function CollectionsView() {
         </p>
       )}
       {menu && <ItemMenu target={menu} close={() => setMenu(null)} startRename={setRenaming} />}
+      {importMenu}
     </>
   );
 }
@@ -262,8 +284,8 @@ function RenameInput({ value, done }: { value: string; done(name: string | null)
   );
 }
 
-function ItemMenu({ target, close, startRename }: { target: MenuTarget; close(): void; startRename(id: string): void }) {
-  const ref = useRef<HTMLDivElement>(null);
+/** Closes a popup menu on a click outside it or Escape, and focuses its first item. */
+function usePopup(ref: React.RefObject<HTMLDivElement | null>, close: () => void) {
   useEffect(() => {
     const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && close();
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
@@ -274,7 +296,31 @@ function ItemMenu({ target, close, startRename }: { target: MenuTarget; close():
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey);
     };
-  }, [close]);
+  }, [ref, close]);
+}
+
+function ImportMenu({ at, withFiles, close, importFile }: { at: { x: number; y: number }; withFiles: boolean; close(): void; importFile(): void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  usePopup(ref, close);
+  return (
+    <div ref={ref} className="menu" role="menu" style={{ left: Math.max(8, at.x - 260), top: at.y + 4 }} data-testid="import-menu">
+      {withFiles && (
+        <button type="button" role="menuitem" onClick={() => (close(), importFile())} data-testid="import-file">
+          Archivo…
+          <span className="menu-sub">Colección o entorno de Postman, OpenAPI o HAR</span>
+        </button>
+      )}
+      <button type="button" role="menuitem" onClick={() => (close(), useStore.getState().setCurlImport(true))} data-testid="import-curl">
+        Comando cURL…
+        <span className="menu-sub">Pégalo de bash, cmd o PowerShell</span>
+      </button>
+    </div>
+  );
+}
+
+function ItemMenu({ target, close, startRename }: { target: MenuTarget; close(): void; startRename(id: string): void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  usePopup(ref, close);
 
   const { collectionId, node } = target;
   const parentId = node === null ? null : node.kind === "folder" ? node.id : null;
@@ -303,6 +349,14 @@ function ItemMenu({ target, close, startRename }: { target: MenuTarget; close():
   });
 
   // Mockix: only offered when it registered mockix:// on this machine. Mockix asks before importing.
+  // Opens the saved request (or the tab that already edits it) and shows its cURL.
+  const copyCurl = run(async () => {
+    if (!node) return;
+    await useStore.getState().openItem({ collectionId, itemId: node.id });
+    const { activeId, tabs, openCurl } = useStore.getState();
+    if (tabs.find((t) => t.id === activeId)?.kind === "request") openCurl(activeId);
+  });
+
   const createMock = run(async () => {
     const result = await window.sendix.mockix.importCollection(collectionId);
     if (result.ok) useStore.getState().notify("ok", "Se abrió Mockix: confirma allí la importación de la colección.");
@@ -320,6 +374,7 @@ function ItemMenu({ target, close, startRename }: { target: MenuTarget; close():
       ? ([["Ejecutar…", () => (close(), useStore.getState().openRunner(collectionId, node ? node.id : null))]] as Array<[string, () => void]>)
       : []),
     ...(node === null && mockix ? ([["Crear mock desde esta colección", createMock]] as Array<[string, () => void]>) : []),
+    ...(node?.kind === "request" && HTTP_METHODS.has(node.method ?? "") ? ([["Copiar como cURL", copyCurl]] as Array<[string, () => void]>) : []),
     ["Renombrar", () => (close(), startRename(node ? node.id : `c:${collectionId}`))],
     ...(node ? ([["Duplicar", run(() => ws("duplicateItem", { collectionId, itemId: node.id }))]] as Array<[string, () => void]>) : []),
     [node ? "Eliminar" : "Eliminar colección", remove, true],

@@ -274,7 +274,7 @@ function authParams(list: unknown): Record<string, string> {
   return Object.fromEntries(list.filter(isObject).map((p) => [str(p["key"]), str(p["value"])]));
 }
 
-function authFromItem(auth: unknown): RequestAuth {
+export function authFromItem(auth: unknown): RequestAuth {
   if (!isObject(auth)) return { type: "inherit" };
   const type = str(auth["type"]);
   if (type === "noauth") return { type: "none" };
@@ -383,7 +383,8 @@ function authToJson(auth: RequestAuth): Json | null | undefined {
         ],
       };
     case "preserved":
-      return undefined;
+      // Unchanged ones never get here; a new one (Digest from a cURL paste) is written as it came.
+      return isObject(auth.data) ? (auth.data as Json) : undefined;
   }
 }
 

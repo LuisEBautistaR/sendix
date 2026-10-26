@@ -152,6 +152,12 @@ describe("collection model", () => {
     ]);
   });
 
+  it("saves an auth Sendix cannot edit, such as Digest from a cURL paste, as it came", () => {
+    const digest = { type: "digest", digest: [{ key: "username", value: "ana", type: "string" }, { key: "password", value: "pw", type: "string" }] };
+    const item = newRequestItem("d-1", "Con Digest", { method: "GET", url: "https://a.test", headers: [], body: { mode: "none" }, auth: { type: "preserved", label: "Digest", data: digest }, settings: DEFAULT_SETTINGS });
+    expect((item["request"] as Json)["auth"]).toEqual(digest);
+  });
+
   it("creates, renames, duplicates and removes items", () => {
     const c = loaded();
     const folderId = idOf(c, "Productos");

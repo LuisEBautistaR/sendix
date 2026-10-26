@@ -338,6 +338,9 @@ interface State {
   notices: Notice[];
   /** Tab waiting for the "save as" dialog. */
   savingTabId: string | null;
+  /** The request tab «Copiar como cURL» is showing, if open. */
+  curlTabId: string | null;
+  curlImportOpen: boolean;
   prefs: Prefs;
 
   newRequest(draft?: HttpRequest, extra?: Partial<RequestTab>): void;
@@ -399,6 +402,9 @@ interface State {
   save(id: string): Promise<void>;
   saveAs(id: string, collectionId: string, parentId: string | null, name: string): Promise<void>;
   closeSaveDialog(): void;
+  openCurl(id: string): void;
+  closeCurl(): void;
+  setCurlImport(open: boolean): void;
 }
 
 const first = requestTab();
@@ -428,6 +434,8 @@ export const useStore = create<State>((set, get) => {
     variables: [],
     notices: [],
     savingTabId: null,
+    curlTabId: null,
+    curlImportOpen: false,
     prefs: DEFAULT_PREFS,
 
     newRequest: (draft, extra = {}) => {
@@ -860,6 +868,9 @@ export const useStore = create<State>((set, get) => {
     },
 
     closeSaveDialog: () => set({ savingTabId: null }),
+    openCurl: (id) => set({ curlTabId: id }),
+    closeCurl: () => set({ curlTabId: null }),
+    setCurlImport: (curlImportOpen) => set({ curlImportOpen }),
 
     switchProtocol: (id, target) => {
       const tab = get().tabs.find((t) => t.id === id);

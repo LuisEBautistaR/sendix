@@ -56,6 +56,9 @@ const api: SendixApi = {
       return () => ipcRenderer.removeListener(IpcChannels.linkRequest, handler);
     },
   },
+  curl: {
+    build: (args) => ipcRenderer.invoke(IpcChannels.curlBuild, args),
+  },
   mockix: {
     available: () => ipcRenderer.invoke(IpcChannels.mockixAvailable),
     importCollection: (collectionId) => ipcRenderer.invoke(IpcChannels.mockixImport, collectionId),

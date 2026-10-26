@@ -71,6 +71,17 @@ export function RequestLine({ tab }: { tab: RequestTab }) {
       >
         <Icon name="save" size={16} />
       </button>
+      <button
+        type="button"
+        className="btn btn-secondary btn-icon"
+        title="Copiar como cURL"
+        aria-label="Copiar como cURL"
+        disabled={tab.draft.url.trim() === ""}
+        onClick={() => useStore.getState().openCurl(tab.id)}
+        data-testid="copy-curl"
+      >
+        <Icon name="terminal" size={16} />
+      </button>
     </form>
   );
 }

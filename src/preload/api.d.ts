@@ -8,6 +8,7 @@ import type { RealtimeEvent } from "../shared/realtime";
 import type { GrpcEvent } from "../shared/grpc";
 import type { Prefs } from "../shared/prefs";
 import type { LinkedRequest } from "../shared/links";
+import type { CurlBuild, CurlBuildResult } from "../shared/curl-export";
 
 /** What the preload exposes to the renderer as window.sendix. Nothing else crosses the bridge. */
 export interface SendixApi {
@@ -46,6 +47,13 @@ export interface SendixApi {
     /** Takes a link off the waiting list (the user answered); null if it was not waiting. */
     decide(id: string): Promise<{ id: string; request: LinkedRequest } | null>;
     onRequest(listener: (link: { id: string; request: LinkedRequest }) => void): () => void;
+  };
+  curl: {
+    /**
+     * «Copiar como cURL»: main builds the command (inherited auth, variables, secrets).
+     * The answer always hides secrets; with copy, main writes the command to the clipboard.
+     */
+    build(args: CurlBuild): Promise<CurlBuildResult>;
   };
   mockix: {
     /** Whether Mockix registered mockix:// on this machine. */

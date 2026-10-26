@@ -142,7 +142,9 @@ Con el icono **Importar** (la flecha hacia abajo, junto a **Colecciones**) puede
 - una especificación **OpenAPI** o **Swagger** (`.yaml` o `.json`): Sendix crea una petición por operación;
 - una captura **HAR** del navegador: se quitan las cookies y las cabeceras `Authorization`.
 
-¿Tienes un comando `curl`? Pégalo entero en la URL y Sendix lo convierte en la petición, con su método, cabeceras y cuerpo.
+¿Tienes un comando `curl`? Pégalo entero en la URL, o en **Importar → Comando cURL…**, y Sendix lo convierte en la petición, con su método, cabeceras y cuerpo.
+
+Y al revés: el botón `>_` junto a **Guardar** copia la petición como comando `curl` para bash, cmd o PowerShell. Los secretos no se copian salvo que lo pidas.
 
 ### Ejecuta la colección con datos
 

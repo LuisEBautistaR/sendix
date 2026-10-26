@@ -18,6 +18,7 @@ import { GrpcFiles } from "./grpc-files";
 import { createMainWindow } from "./window";
 import { registerPreviews } from "./preview";
 import { LinkService } from "./links";
+import { registerCurl } from "./curl";
 import { linkFromArgv } from "@shared/links";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
@@ -84,6 +85,7 @@ if (!app.requestSingleInstanceLock()) {
     links = new LinkService(workspaces, broadcast, (m, d) => log(m, d));
     links.registerProtocol();
     links.register();
+    registerCurl(workspaces, prefs);
     const grpcFiles = new GrpcFiles(workspaces);
     grpcFiles.register();
     registerRpcRouter(engine, history, workspaces, new RealtimeRelay(engine), grpcFiles, prefs, testMode);

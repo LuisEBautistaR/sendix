@@ -38,6 +38,7 @@ export const IpcChannels = {
   linkRequest: "sendix:link-request",
   mockixAvailable: "sendix:mockix-available",
   mockixImport: "sendix:mockix-import",
+  curlBuild: "sendix:curl-build",
 } as const;
 
 export interface UpdateState {

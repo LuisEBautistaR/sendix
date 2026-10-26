@@ -16,6 +16,7 @@ import { GrpcEditor, GrpcLine, GrpcResponse } from "./components/GrpcPane";
 import { SettingsView } from "./components/SettingsView";
 import { Split } from "./components/Split";
 import { LinkDialog } from "./components/LinkDialog";
+import { CurlDialog, CurlImportDialog } from "./components/CurlDialog";
 
 const RAIL: Array<{ view: SidebarView; icon: IconName; label: string }> = [
   { view: "collections", icon: "folder", label: "Colecciones" },
@@ -204,6 +205,8 @@ export function App() {
       <StatusBar engine={engine} version={version} />
       <SaveDialog />
       <LinkDialog />
+      <CurlDialog />
+      <CurlImportDialog />
       <Notices />
     </div>
   );

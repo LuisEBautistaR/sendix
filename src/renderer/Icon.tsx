@@ -67,6 +67,7 @@ const paths = {
     </>
   ),
   trash: <path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" />,
+  terminal: <path d="m5 8 4 4-4 4M12 16.5h7" />,
   wrap: (
     <>
       <path d="M4 6h16M4 12h13a3 3 0 0 1 0 6h-4M4 18h5" />

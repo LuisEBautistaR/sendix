@@ -13,7 +13,7 @@ Sendix es un cliente de API para Windows: envías peticiones HTTP, conectas por 
 5. [Leer la respuesta](#5-leer-la-respuesta)
 6. [Colecciones y carpeta de trabajo](#6-colecciones-y-carpeta-de-trabajo)
 7. [Variables, entornos y secretos](#7-variables-entornos-y-secretos)
-8. [Importar](#8-importar)
+8. [Importar y copiar como cURL](#8-importar-y-copiar-como-curl)
 9. [Scripts y tests](#9-scripts-y-tests)
 10. [Ejecutar una colección](#10-ejecutar-una-colección)
 11. [WebSocket y Socket.IO](#11-websocket-y-socketio)
@@ -67,7 +67,7 @@ Los archivos son los mismos que exporta Postman: puedes abrirlos en Postman, en 
 
 ## 4. Componer una petición
 
-**Método y URL.** Elige el método y escribe la URL. Los parámetros de la consulta (`?pagina=2&orden=fecha`) aparecen en la pestaña **Parámetros** y se mantienen sincronizados. Si desmarcas uno, sale de la URL pero queda en la tabla para volver a usarlo. Pegar un comando `curl` en la URL lo convierte en la petición.
+**Método y URL.** Elige el método y escribe la URL. Los parámetros de la consulta (`?pagina=2&orden=fecha`) aparecen en la pestaña **Parámetros** y se mantienen sincronizados. Si desmarcas uno, sale de la URL pero queda en la tabla para volver a usarlo. Pegar un comando `curl` en la URL lo convierte en la petición, y el botón `>_` junto a Guardar la copia como comando `curl` (sección 8).
 
 **Autorización.** En **Autorización** eliges:
 
@@ -159,7 +159,7 @@ Si no hubo respuesta, Sendix explica la causa en palabras (dirección mal escrit
 - la barra de estado avisa cuando hay valores de sesión, y **Olvidar** los borra;
 - para escribirlos en los archivos, usa la opción del ejecutor (sección 10).
 
-## 8. Importar
+## 8. Importar y copiar como cURL
 
 El icono **Importar** de la barra lateral acepta:
 
@@ -170,7 +170,36 @@ El icono **Importar** de la barra lateral acepta:
 | OpenAPI 3 o Swagger 2 (`.json` o `.yaml`) | Una colección con una petición por operación. |
 | HAR (captura del navegador) | Una colección con las peticiones capturadas, sin cookies ni `Authorization`. |
 
-Y pegar un comando `curl` en la URL lo convierte en la petición.
+### Importar un comando cURL
+
+Pega el comando entero en la URL de una pestaña, o usa **Importar → Comando cURL…** para pegarlo en un cuadro. Se abre como pestaña nueva sin guardar y no se envía nada hasta que pulses **Enviar**.
+
+- Vale el comando de **bash**, de **cmd** (también el «Copy as cURL (cmd)» de las herramientas del navegador) y de **PowerShell**.
+- Sendix toma el método, la URL, las cabeceras, el cuerpo y la autorización (Basic, Bearer, Digest o NTLM). También toma `-k`, `--max-time` y `--max-redirs`.
+- Lo que no puede traer lo avisa encima de la petición:
+  - un proxy o certificados: van en **Ajustes → Red y certificados**;
+  - un cuerpo o un campo que viene de un archivo;
+  - un archivo de cookies.
+
+### Copiar una petición como cURL
+
+Con el botón `>_` junto a **Guardar**, o en el menú `⋯` de una petición del árbol, eliges **Copiar como cURL**:
+
+1. Elige el terminal: **bash** (Linux, macOS, Git Bash o WSL), **cmd** o **PowerShell**. Sendix recuerda el último.
+2. **Sustituir las variables por sus valores** usa el entorno activo. Desactívalo para dejar cada `{{variable}}` escrita.
+3. Revisa el comando y los avisos, y pulsa **Copiar**.
+
+El comando lleva la autorización que hereda la petición de su carpeta o su colección.
+
+**Los secretos no se copian si no lo pides.** Las variables secretas quedan como `{{nombre}}`, y el token, la contraseña y las cabeceras `Authorization` y `Cookie` salen como `<token>`, `<contraseña>` u `<oculto>`. Si los necesitas, marca **Incluir secretos y credenciales** y confírmalo. Irán al portapapeles, pero en la ventana siguen ocultos. Ojo: lo que está en el portapapeles lo pueden leer otras apps.
+
+Lo que cURL no puede hacer queda en los avisos:
+- los scripts;
+- OAuth 2.0 y otras autorizaciones que solo entiende Sendix;
+- las variables dinámicas como `{{$guid}}`;
+- los acentos y la ñ en bash y cmd: en Windows, `curl.exe` puede enviarlos en otra codificación, así que comprueba el resultado (en PowerShell llegan bien).
+
+En PowerShell el comando escribe las opciones en un bloque `@'…'@`, las guarda en un archivo temporal, se lo pasa a `curl.exe` y lo borra al terminar. Así funciona igual en Windows PowerShell y en PowerShell 7, por raras que sean las comillas, y los acentos llegan bien.
 
 ## 9. Scripts y tests
 

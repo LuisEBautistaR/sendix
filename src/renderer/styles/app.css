@@ -653,3 +653,13 @@ textarea.small-editor:focus { border-color: var(--focus); }
 .link-headers { margin: 8px 0 0; padding: 6px 10px; list-style: none; border: 1px solid var(--line); border-radius: var(--radius); font-size: 11.5px; max-height: 140px; overflow: auto; }
 .link-headers li { overflow-wrap: anywhere; }
 .link-body { margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--field); font-size: 11.5px; max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* «Copiar como cURL» and «Importar un comando cURL» */
+.curl-dialog { width: 640px; max-width: calc(100vw - 32px); flex-direction: column; gap: 10px; }
+.curl-dialog[open] { display: flex; }
+.curl-shells { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.curl-preview { margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--field); font-size: 11.5px; line-height: 1.5; max-height: 260px; overflow: auto; white-space: pre; user-select: text; }
+.curl-notes { margin: 0; padding: 7px 10px 7px 26px; border-radius: var(--radius); background: var(--var-bg); color: var(--var-ink); font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+.curl-input { min-height: 160px; resize: vertical; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--field); color: var(--ink); font-size: 12px; line-height: 1.5; white-space: pre; overflow: auto; }
+.curl-input:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
+.curl-dialog .notice { margin: 0; }
