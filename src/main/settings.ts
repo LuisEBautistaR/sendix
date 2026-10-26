@@ -1,15 +1,17 @@
-/** Per-user app state in <userData>/settings.json: recent workspaces and the active environment of each. */
+/** Per-user app state in <userData>/settings.json: recent workspaces, the active environment of each and the preferences. */
 import { readFile, rename, writeFile } from "node:fs/promises";
 import type { RecentWorkspace } from "@shared/workspace";
+import { DEFAULT_PREFS, readPrefs, type Prefs } from "@shared/prefs";
 
 export interface AppSettings {
   recentWorkspaces: RecentWorkspace[];
   lastWorkspace: string | null;
   /** Workspace path → active environment id. Per user, so it never ends up in the shared folder. */
   activeEnvironment: Record<string, string>;
+  prefs: Prefs;
 }
 
-const DEFAULTS: AppSettings = { recentWorkspaces: [], lastWorkspace: null, activeEnvironment: {} };
+const DEFAULTS: AppSettings = { recentWorkspaces: [], lastWorkspace: null, activeEnvironment: {}, prefs: DEFAULT_PREFS };
 const MAX_RECENT = 10;
 
 export class SettingsStore {
@@ -26,6 +28,7 @@ export class SettingsStore {
         recentWorkspaces: Array.isArray(parsed.recentWorkspaces) ? parsed.recentWorkspaces.filter((r) => r && typeof r.path === "string") : [],
         lastWorkspace: typeof parsed.lastWorkspace === "string" ? parsed.lastWorkspace : null,
         activeEnvironment: parsed.activeEnvironment && typeof parsed.activeEnvironment === "object" ? parsed.activeEnvironment : {},
+        prefs: readPrefs(parsed.prefs),
       };
     } catch {
       /* first run or unreadable: defaults */

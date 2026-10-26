@@ -9,6 +9,7 @@ import type { WorkspaceSnapshot } from "@shared/workspace";
 import type { RunEvent } from "@shared/runner";
 import type { RealtimeEvent } from "@shared/realtime";
 import type { GrpcEvent } from "@shared/grpc";
+import type { Prefs } from "@shared/prefs";
 
 const api: SendixApi = {
   engine: {
@@ -25,10 +26,24 @@ const api: SendixApi = {
     updates: () => ipcRenderer.invoke(IpcChannels.updatesGet),
     checkUpdates: () => ipcRenderer.invoke(IpcChannels.updatesCheck),
     installUpdate: () => ipcRenderer.invoke(IpcChannels.updatesInstall),
+    preview: (html) => ipcRenderer.invoke(IpcChannels.previewPut, html),
     onUpdates: (listener) => {
       const handler = (_event: IpcRendererEvent, state: UpdateState) => listener(state);
       ipcRenderer.on(IpcChannels.updatesChanged, handler);
       return () => ipcRenderer.removeListener(IpcChannels.updatesChanged, handler);
+    },
+  },
+  prefs: {
+    get: () => ipcRenderer.invoke(IpcChannels.prefsGet),
+    set: (prefs) => ipcRenderer.invoke(IpcChannels.prefsSet, prefs),
+    revealProfile: () => ipcRenderer.invoke(IpcChannels.profileReveal),
+    pickFile: (kind) => ipcRenderer.invoke(IpcChannels.prefsPick, kind),
+    setSecret: (name, value) => ipcRenderer.invoke(IpcChannels.prefsSecret, name, value),
+    secrets: () => ipcRenderer.invoke(IpcChannels.prefsSecrets),
+    onChanged: (listener) => {
+      const handler = (_event: IpcRendererEvent, prefs: Prefs) => listener(prefs);
+      ipcRenderer.on(IpcChannels.prefsChanged, handler);
+      return () => ipcRenderer.removeListener(IpcChannels.prefsChanged, handler);
     },
   },
   history: {
@@ -51,6 +66,10 @@ const api: SendixApi = {
   runner: {
     start: (config) => ipcRenderer.invoke(IpcChannels.runnerStart, config),
     stop: (runId) => ipcRenderer.invoke(IpcChannels.runnerStop, runId),
+    history: (collectionId) => ipcRenderer.invoke(IpcChannels.runsList, collectionId),
+    record: (id) => ipcRenderer.invoke(IpcChannels.runsGet, id),
+    deleteRecord: (id) => ipcRenderer.invoke(IpcChannels.runsDelete, id),
+    exportRecord: (id) => ipcRenderer.invoke(IpcChannels.runsExport, id),
     onEvent: (listener) => {
       const handler = (_event: IpcRendererEvent, event: RunEvent) => listener(event);
       ipcRenderer.on(IpcChannels.runnerEvent, handler);

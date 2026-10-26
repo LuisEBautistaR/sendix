@@ -4,7 +4,7 @@
  * and both main and the engine validate params and results against these schemas.
  */
 import { z } from "zod";
-import { httpOutcomeSchema, httpRequestSchema, requestIdSchema, requestSourceSchema, sendContextSchema } from "./http";
+import { httpOutcomeSchema, httpRequestSchema, networkOptionsSchema, requestIdSchema, requestSourceSchema, sendContextSchema } from "./http";
 import { dataRowSchema } from "./runner";
 import { connIdSchema, connectResultSchema, outgoingMessageSchema, realtimeRequestSchema } from "./realtime";
 import { callIdSchema, describeResultSchema, grpcRequestSchema, startResultSchema } from "./grpc";
@@ -21,6 +21,12 @@ export const methods = {
       context: sendContextSchema.nullable().optional(),
       /** Collection runner only: the data file row for this iteration (pm.iterationData, {{column}}). */
       iterationData: dataRowSchema.nullable().optional(),
+      /** Filled in by main from the preferences; the engine falls back to MAX_RESPONSE_BYTES. */
+      maxResponseBytes: z.number().int().min(1).max(500 * 1024 * 1024).optional(),
+      /** Runner only: a run's own cookie jar; omitted uses the engine's shared jar. */
+      cookieJar: z.string().min(1).max(64).nullable().optional(),
+      /** Filled in by main only: proxy and certificates from Settings. */
+      network: networkOptionsSchema.optional(),
     }),
     result: httpOutcomeSchema,
     testOnly: false,
@@ -28,6 +34,12 @@ export const methods = {
   "http.cancel": {
     params: z.object({ requestId: requestIdSchema }),
     result: z.object({ cancelled: z.boolean() }),
+    testOnly: false,
+  },
+  /** Forgets a run's cookie jar, first copying its cookies into the shared one when `keep` is set. */
+  "http.dropJar": {
+    params: z.object({ jar: z.string().min(1).max(64), keep: z.boolean() }),
+    result: z.object({ copied: z.number().int().min(0) }),
     testOnly: false,
   },
   /**

@@ -2,17 +2,21 @@ import { create } from "zustand";
 import { DEFAULT_SETTINGS, type HttpOutcome, type HttpRequest, type KeyValue, type RequestSource } from "@shared/http";
 import type { RpcError } from "@shared/rpc";
 import type { VariableView, WorkspaceSnapshot } from "@shared/workspace";
+import type { TreeNode } from "@shared/collection";
 import type { WorkspaceArgs, WorkspaceOp, WorkspaceResults } from "@shared/workspace-ops";
-import type { RunEvent, RunItemResult } from "@shared/runner";
+import { DEFAULT_RUN_OPTIONS, resultFailed, type RunEvent, type RunItemResult, type RunOptions, type RunSummary } from "@shared/runner";
 import { emptyGrpc, type CallType, type GrpcEvent, type GrpcRequest, type GrpcServiceInfo } from "@shared/grpc";
 import { emptyRealtime, realtimeUrl, type HandshakeInfo, type OutgoingMessage, type RealtimeEvent, type RealtimeMessage, type RealtimeProtocol, type RealtimeRequest } from "@shared/realtime";
 import type { DataFile } from "@shared/data-file";
+import { DEFAULT_PREFS, type Prefs } from "@shared/prefs";
 import { buildUrl, paramsFromUrl, splitUrl, withScheme } from "../lib/url";
 
 export type RequestPanel = "params" | "auth" | "headers" | "body" | "scripts" | "settings";
 export type ResponsePanel = "body" | "headers" | "cookies" | "tests" | "console" | "timeline";
 export type ScriptPhase = "prerequest" | "test";
 export type BodyView = "pretty" | "raw" | "preview";
+/** How to read the response body: detected from Content-Type and content, or forced. */
+export type BodyFormat = "auto" | "json" | "xml" | "html" | "text";
 
 export interface RequestTab {
   id: string;
@@ -43,11 +47,19 @@ export interface RequestTab {
   scriptPhase: ScriptPhase;
   responsePanel: ResponsePanel;
   bodyView: BodyView;
+  bodyFormat: BodyFormat;
+  /** JSONPath (JSON) or XPath (XML) applied to the formatted body; empty for none. */
+  bodyFilter: string;
 }
 
 export interface SystemTab {
   id: string;
   kind: "system";
+}
+
+export interface SettingsTab {
+  id: string;
+  kind: "settings";
 }
 
 export interface EnvironmentTab {
@@ -65,6 +77,11 @@ export interface RunnerTab {
   iterations: number;
   delayMs: number;
   data: (DataFile & { name: string }) | null;
+  /** Request ids in the order chosen by the user; null keeps the collection order. */
+  order: string[] | null;
+  /** Requests left out of the run. */
+  excluded: string[];
+  options: RunOptions;
   status: "idle" | "running" | "stopping";
   runId: string | null;
   /** Requests per iteration and iterations of the current or last run. */
@@ -72,7 +89,11 @@ export interface RunnerTab {
   results: RunItemResult[];
   startedAt: number | null;
   finishedAt: number | null;
-  finish: { stopped: boolean; error: string | null } | null;
+  finish: { stopped: boolean; error: string | null; stoppedOnError: boolean; persisted: number | null; recordId: number | null } | null;
+  /** Past runs of this collection (null until loaded). */
+  history: RunSummary[] | null;
+  /** The results on screen come from the run history, not from a run just made. */
+  fromHistory: boolean;
   onlyFailures: boolean;
   /** Sequence of the result row shown expanded. */
   expanded: number | null;
@@ -160,12 +181,11 @@ export interface GrpcTab {
   selected: number | null;
 }
 
-export type Tab = RequestTab | SystemTab | EnvironmentTab | RunnerTab | RealtimeTab | GrpcTab;
+export type Tab = RequestTab | SystemTab | SettingsTab | EnvironmentTab | RunnerTab | RealtimeTab | GrpcTab;
 export type EditableTab = RequestTab | RealtimeTab | GrpcTab;
 const MAX_LOG = 5_000;
 
-/** A run result counts as failed when there was no response, a test failed or a script threw. */
-export const resultFailed = (r: RunItemResult) => r.status === null || r.tests.some((t) => !t.passed && !t.skipped) || r.errors.length > 0;
+export { resultFailed };
 const MAX_RESULTS = 20_000;
 export type SidebarView = "collections" | "environments" | "history";
 
@@ -175,9 +195,33 @@ export interface Notice {
   text: string;
 }
 
-export function emptyRequest(): HttpRequest {
-  return { method: "GET", url: "", headers: [], body: { mode: "none" }, auth: { type: "none" }, settings: { ...DEFAULT_SETTINGS } };
+/** Request ids a runner tab can run, in collection order. */
+export function runnableIds(workspace: WorkspaceSnapshot | null, tab: Pick<RunnerTab, "collectionId" | "folderId">): string[] {
+  const collection = workspace?.collections.find((c) => c.id === tab.collectionId);
+  if (!collection) return [];
+  const walk = (nodes: readonly TreeNode[]): TreeNode | null => {
+    for (const n of nodes) {
+      if (n.id === tab.folderId) return n;
+      const found = walk(n.children ?? []);
+      if (found) return found;
+    }
+    return null;
+  };
+  const ids = (nodes: readonly TreeNode[]): string[] => nodes.flatMap((n) => (n.kind === "request" ? [n.id] : ids(n.children ?? [])));
+  const root = tab.folderId ? walk(collection.tree) : null;
+  return ids(root ? (root.children ?? []) : collection.tree);
 }
+
+/** Last preferences heard from main; new requests take their timeout from here. */
+let prefsNow: Prefs = DEFAULT_PREFS;
+
+export function emptyRequest(): HttpRequest {
+  return { method: "GET", url: "", headers: [], body: { mode: "none" }, auth: { type: "none" }, settings: { ...DEFAULT_SETTINGS, timeoutMs: prefsNow.request.timeoutMs } };
+}
+
+/** Saved requests do not store a timeout: they open with the one from Settings. */
+const withTimeout = (request: HttpRequest): HttpRequest => ({ ...request, settings: { ...request.settings, timeoutMs: prefsNow.request.timeoutMs } });
+const isUntouchedScratch = (t: Tab): t is RequestTab => t.kind === "request" && !t.source && t.draft.url === "" && !t.outcome && t.status !== "sending";
 
 const fingerprint = (draft: HttpRequest, params: KeyValue[]) => JSON.stringify([draft, params.filter((p) => !p.enabled)]);
 const realtimeFingerprint = (draft: RealtimeRequest) => JSON.stringify(draft);
@@ -209,6 +253,8 @@ function requestTab(draft: HttpRequest = emptyRequest(), extra: Partial<RequestT
     scriptPhase: "prerequest",
     responsePanel: "body",
     bodyView: "pretty",
+    bodyFormat: "auto",
+    bodyFilter: "",
     ...extra,
   };
 }
@@ -292,11 +338,17 @@ interface State {
   notices: Notice[];
   /** Tab waiting for the "save as" dialog. */
   savingTabId: string | null;
+  prefs: Prefs;
 
   newRequest(draft?: HttpRequest, extra?: Partial<RequestTab>): void;
   openItem(source: RequestSource): Promise<void>;
   openEnvironment(environmentId: string): void;
   openSystem(): void;
+  openSettings(): void;
+  /** Applies preferences main announced (startup or after a change). */
+  setPrefs(prefs: Prefs): void;
+  /** Saves new preferences through main; the change comes back through setPrefs. */
+  savePrefs(update: (prefs: Prefs) => Prefs): Promise<void>;
   openRunner(collectionId: string, folderId: string | null): void;
   /** Turns a scratch tab into a WebSocket/Socket.IO tab or back into HTTP (method). */
   switchProtocol(id: string, target: RealtimeProtocol | string): void;
@@ -318,6 +370,15 @@ interface State {
   patchRunner(id: string, patch: Partial<Omit<RunnerTab, "id" | "kind">>): void;
   startRun(id: string): Promise<void>;
   stopRun(id: string): Promise<void>;
+  loadRunHistory(id: string): Promise<void>;
+  /** Shows a past run's results in the runner tab. */
+  openRunRecord(id: string, recordId: number): Promise<void>;
+  /** Loads a past run's settings into the tab and runs it again. */
+  repeatRun(id: string, recordId: number): Promise<void>;
+  deleteRunRecord(id: string, recordId: number): Promise<void>;
+  exportRunRecord(recordId: number): Promise<void>;
+  /** Back from the results to the run settings. */
+  backToPlan(id: string): void;
   onRunEvent(event: RunEvent): void;
   close(id: string): void;
   activate(id: string): void;
@@ -367,6 +428,7 @@ export const useStore = create<State>((set, get) => {
     variables: [],
     notices: [],
     savingTabId: null,
+    prefs: DEFAULT_PREFS,
 
     newRequest: (draft, extra = {}) => {
       const tab = requestTab(draft, extra);
@@ -390,12 +452,12 @@ export const useStore = create<State>((set, get) => {
           ? grpcTab(view.grpc, { source, name: view.name, path: view.path, saved: grpcFingerprint(view.grpc) })
           : view.realtime
           ? realtimeTab(view.realtime, { source, name: view.name, path: view.path, saved: realtimeFingerprint(view.realtime) })
-          : requestTab(view.request, {
+          : requestTab(withTimeout(view.request), {
               params,
               source,
               name: view.name,
               path: view.path,
-              saved: fingerprint(view.request, params),
+              saved: fingerprint(withTimeout(view.request), params),
             });
         // Reuse an untouched empty scratch tab instead of piling up tabs.
         set((s) => {
@@ -417,6 +479,37 @@ export const useStore = create<State>((set, get) => {
       set((s) => ({ tabs: [...s.tabs, tab], activeId: tab.id }));
     },
 
+    openSettings: () => {
+      const existing = get().tabs.find((t) => t.kind === "settings");
+      if (existing) return set({ activeId: existing.id });
+      const tab: SettingsTab = { id: `tab-${++tabSeq}`, kind: "settings" };
+      set((s) => ({ tabs: [...s.tabs, tab], activeId: tab.id }));
+    },
+
+    setPrefs: (prefs) => {
+      const previous = prefsNow;
+      prefsNow = prefs;
+      document.documentElement.style.setProperty("--code-size", `${prefs.editor.fontSize}px`);
+      set((s) => ({
+        prefs,
+        // Empty scratch tabs still carry the old default timeout: give them the new one.
+        tabs:
+          previous.request.timeoutMs === prefs.request.timeoutMs
+            ? s.tabs
+            : s.tabs.map((t) => (isUntouchedScratch(t) && t.draft.settings.timeoutMs === previous.request.timeoutMs ? { ...t, draft: { ...t.draft, settings: { ...t.draft.settings, timeoutMs: prefs.request.timeoutMs } } } : t)),
+      }));
+    },
+
+    savePrefs: async (update) => {
+      const before = get().prefs;
+      // Shown at once; main stores it and answers with what it kept.
+      get().setPrefs(update(before));
+      const saved = await window.sendix.prefs.set(get().prefs);
+      if (saved) return get().setPrefs(saved);
+      get().setPrefs(before);
+      get().notify("err", "No se pudieron guardar los ajustes.");
+    },
+
     openSystem: () => {
       const existing = get().tabs.find((t) => t.kind === "system");
       if (existing) return set({ activeId: existing.id });
@@ -435,6 +528,9 @@ export const useStore = create<State>((set, get) => {
         iterations: 1,
         delayMs: 0,
         data: null,
+        order: null,
+        excluded: [],
+        options: { ...DEFAULT_RUN_OPTIONS },
         status: "idle",
         runId: null,
         plan: null,
@@ -442,6 +538,8 @@ export const useStore = create<State>((set, get) => {
         startedAt: null,
         finishedAt: null,
         finish: null,
+        history: null,
+        fromHistory: false,
         onlyFailures: false,
         expanded: null,
       };
@@ -453,13 +551,19 @@ export const useStore = create<State>((set, get) => {
     startRun: async (id) => {
       const tab = get().tabs.find((t): t is RunnerTab => t.id === id && t.kind === "runner");
       if (!tab || tab.status !== "idle") return;
-      get().patchRunner(id, { status: "running", results: [], plan: null, finish: null, expanded: null, startedAt: Date.now(), finishedAt: null });
+      const excluded = new Set(tab.excluded);
+      const itemIds = tab.order || excluded.size ? (tab.order ?? runnableIds(get().workspace, tab)).filter((i) => !excluded.has(i)) : null;
+      if (itemIds && !itemIds.length) return get().notify("err", "Elige al menos una petición para ejecutar.");
+      get().patchRunner(id, { status: "running", results: [], plan: null, finish: null, expanded: null, startedAt: Date.now(), finishedAt: null, fromHistory: false });
       const outcome = await window.sendix.runner.start({
         collectionId: tab.collectionId,
         folderId: tab.folderId,
+        itemIds,
         iterations: tab.iterations,
         delayMs: tab.delayMs,
         data: tab.data?.rows ?? null,
+        dataName: tab.data?.name ?? null,
+        options: tab.options,
       });
       if (outcome.ok) get().patchRunner(id, { runId: outcome.value.runId });
       else {
@@ -483,9 +587,72 @@ export const useStore = create<State>((set, get) => {
           if (event.type === "started") return t.status !== "idle" && (t.runId === null || t.runId === event.runId) ? { ...t, runId: event.runId, plan: { requests: event.requests, iterations: event.iterations } } : t;
           if (t.runId !== event.runId) return t;
           if (event.type === "item") return t.results.length >= MAX_RESULTS ? t : { ...t, results: [...t.results, event.result] };
-          return { ...t, status: "idle", finishedAt: Date.now(), finish: { stopped: event.stopped, error: event.error } };
+          return {
+            ...t,
+            status: "idle",
+            finishedAt: Date.now(),
+            finish: { stopped: event.stopped, error: event.error, stoppedOnError: event.stoppedOnError, persisted: event.persisted, recordId: event.recordId },
+            // The run history changed: reload it next time it is shown.
+            history: null,
+          };
         }),
       })),
+
+    loadRunHistory: async (id) => {
+      const tab = get().tabs.find((t): t is RunnerTab => t.id === id && t.kind === "runner");
+      if (!tab) return;
+      const history = await window.sendix.runner.history(tab.collectionId);
+      get().patchRunner(id, { history: history ?? [] });
+    },
+
+    openRunRecord: async (id, recordId) => {
+      const record = await window.sendix.runner.record(recordId);
+      if (!record) return get().notify("err", "Esa ejecución ya no está en el historial.");
+      get().patchRunner(id, {
+        results: record.results,
+        plan: { requests: record.requests, iterations: record.iterations },
+        startedAt: record.startedAt,
+        finishedAt: record.finishedAt,
+        finish: { stopped: record.state === "stopped", error: record.state === "error" ? "terminó con un error" : null, stoppedOnError: false, persisted: null, recordId: record.id },
+        expanded: null,
+        onlyFailures: false,
+        fromHistory: true,
+      });
+    },
+
+    repeatRun: async (id, recordId) => {
+      const record = await window.sendix.runner.record(recordId);
+      if (!record) return get().notify("err", "Esa ejecución ya no está en el historial.");
+      const c = record.config;
+      const data = c.data?.length ? { format: "json" as const, columns: [...new Set(c.data.flatMap((r) => Object.keys(r)))], rows: c.data, name: c.dataName ?? "datos" } : null;
+      const tab = get().tabs.find((t): t is RunnerTab => t.id === id && t.kind === "runner");
+      const all = tab ? runnableIds(get().workspace, tab) : [];
+      const chosen = c.itemIds ?? all;
+      get().patchRunner(id, {
+        iterations: c.iterations,
+        delayMs: c.delayMs,
+        data,
+        options: c.options,
+        // Requests added since go at the end, left out.
+        order: c.itemIds ? [...chosen, ...all.filter((i) => !chosen.includes(i))] : null,
+        excluded: c.itemIds ? all.filter((i) => !chosen.includes(i)) : [],
+      });
+      if (c.dataName && !data) get().notify("err", `El archivo de datos «${c.dataName}» era demasiado grande para el historial: vuelve a elegirlo y ejecuta.`);
+      else await get().startRun(id);
+    },
+
+    deleteRunRecord: async (id, recordId) => {
+      await window.sendix.runner.deleteRecord(recordId);
+      await get().loadRunHistory(id);
+    },
+
+    exportRunRecord: async (recordId) => {
+      const result = await window.sendix.runner.exportRecord(recordId);
+      if (result === "saved") get().notify("ok", "Ejecución exportada.");
+      else if (result === "missing") get().notify("err", "Esa ejecución ya no está en el historial.");
+    },
+
+    backToPlan: (id) => get().patchRunner(id, { startedAt: null, finishedAt: null, results: [], plan: null, finish: null, expanded: null, fromHistory: false, history: null }),
 
     close: (id) => {
       const closing = get().tabs.find((t) => t.id === id);

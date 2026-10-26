@@ -21,7 +21,8 @@ export async function launch(testMode = true): Promise<Launched> {
     env["SENDIX_TEST"] = "1";
     env["SENDIX_USER_DATA"] = userData;
   } else delete env["SENDIX_TEST"];
-  const app = await electron.launch({ args: ["."], cwd: root, env });
+  // Own profile also outside test mode, so an installed Sendix that is open does not hold the single-instance lock.
+  const app = await electron.launch({ args: [`--user-data-dir=${userData}`, "."], cwd: root, env });
   const win = await app.firstWindow();
   await expect(win.locator(".statusbar .engine-dot")).toHaveText("Motor listo", { timeout: 20_000 });
   return {

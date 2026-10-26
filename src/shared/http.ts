@@ -39,13 +39,38 @@ export const authSchema = z.discriminatedUnion("type", [
 export type RequestAuth = z.infer<typeof authSchema>;
 export type AuthType = RequestAuth["type"];
 
+/**
+ * Optional request behaviours saved in the item's v2.1 `protocolProfileBehavior`.
+ * Missing means "inherit": the folders and the collection may set them, otherwise
+ * postman-runtime's default applies.
+ */
+export const BEHAVIOR_KEYS = ["maxRedirects", "followOriginalHttpMethod", "followAuthorizationHeader", "removeRefererHeaderOnRedirect", "disableUrlEncoding", "disableCookies"] as const;
+export type BehaviorKey = (typeof BEHAVIOR_KEYS)[number];
+
 export const settingsSchema = z.object({
   /** 1 s to 10 min. */
   timeoutMs: z.number().int().min(1_000).max(600_000),
   followRedirects: z.boolean(),
   verifyTls: z.boolean(),
+  maxRedirects: z.number().int().min(0).max(100).optional(),
+  /** Redirect with the original method instead of GET. */
+  followOriginalHttpMethod: z.boolean().optional(),
+  /** Keep the Authorization header when a redirect goes to another host. */
+  followAuthorizationHeader: z.boolean().optional(),
+  removeRefererHeaderOnRedirect: z.boolean().optional(),
+  /** Send the URL exactly as written, without percent-encoding it. */
+  disableUrlEncoding: z.boolean().optional(),
+  /** Neither send nor store cookies for this request. */
+  disableCookies: z.boolean().optional(),
 });
 export type RequestSettings = z.infer<typeof settingsSchema>;
+
+/** The protocolProfileBehavior keys a request's own settings set (inherited ones stay out). */
+export function behaviorOf(settings: RequestSettings): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of BEHAVIOR_KEYS) if (settings[key] !== undefined) out[key] = settings[key];
+  return out;
+}
 
 export const DEFAULT_SETTINGS: RequestSettings = { timeoutMs: 30_000, followRedirects: true, verifyTls: true };
 
@@ -180,8 +205,30 @@ export const sendContextSchema = z.object({
   eventChain: z.array(z.array(z.record(z.string(), z.unknown())).nullable()).max(64),
   collectionVariables: z.array(variableSchema).max(5_000),
   environment: z.array(variableSchema).max(5_000),
+  /** protocolProfileBehavior of the collection, then of each folder (null where a level has none). */
+  behaviorChain: z.array(z.record(z.string(), z.unknown()).nullable()).max(64).optional(),
 });
 export type SendContext = z.infer<typeof sendContextSchema>;
+
+/** Proxy and certificates for one send, worked out by main from Settings (files read in main). */
+export const networkOptionsSchema = z.object({
+  proxy: z
+    .object({ host: z.string().min(1).max(256), port: z.number().int().min(1).max(65_535), username: z.string().max(256), password: z.string().max(4_096) })
+    .nullable(),
+  /** Extra CA in PEM, trusted on top of the system's. */
+  ca: z.string().max(1_048_576).nullable(),
+  /** Client certificate for this URL: PEM cert and key, or a PFX in base64. */
+  cert: z
+    .object({
+      match: z.string().min(1).max(512),
+      cert: z.string().max(1_048_576).optional(),
+      key: z.string().max(1_048_576).optional(),
+      pfx: z.string().max(4_194_304).optional(),
+      passphrase: z.string().max(4_096).optional(),
+    })
+    .nullable(),
+});
+export type NetworkOptions = z.infer<typeof networkOptionsSchema>;
 
 /** A request saved in a workspace collection. */
 export const requestSourceSchema = z.object({ collectionId: z.string().min(1).max(128), itemId: z.string().min(1).max(128) });

@@ -8,6 +8,7 @@ import type { WorkspaceController } from "./workspace/controller";
 import { isTrustedSender } from "./security";
 import type { RealtimeRelay } from "./realtime";
 import type { GrpcFiles } from "./grpc-files";
+import type { PrefsService } from "./prefs";
 
 const forbidden: Outcome<never> = { ok: false, error: { code: ErrorCodes.forbidden, message: "Untrusted sender" } };
 /** Slack on top of a request's own timeout before main gives up on the engine. */
@@ -20,7 +21,15 @@ export function broadcast(channel: string, payload: unknown): void {
 }
 
 /** The renderer's only door to the engine and to stored data: checks the sender, the method and its params. */
-export function registerRpcRouter(engine: EngineHost, history: HistoryStore, workspaces: WorkspaceController, realtime: RealtimeRelay, grpcFiles: GrpcFiles, testMode: boolean): void {
+export function registerRpcRouter(
+  engine: EngineHost,
+  history: HistoryStore,
+  workspaces: WorkspaceController,
+  realtime: RealtimeRelay,
+  grpcFiles: GrpcFiles,
+  prefs: PrefsService,
+  testMode: boolean,
+): void {
   ipcMain.handle(IpcChannels.engineCall, async (event, method: unknown, params: unknown): Promise<Outcome<unknown>> => {
     if (!isTrustedSender(event.senderFrame)) return forbidden;
     if (!isMethodName(method) || (methods[method].testOnly && !testMode)) {
@@ -39,7 +48,8 @@ export function registerRpcRouter(engine: EngineHost, history: HistoryStore, wor
       const { request } = params;
       // Inherited auth, collection variables and the active environment come from main only.
       const context = workspaces.contextFor(params.source ?? null);
-      const outcome = await engine.call("http.send", { ...params, context }, request.settings.timeoutMs + HTTP_CALL_SLACK_MS);
+      const prepared = await prefs.prepare(request);
+      const outcome = await engine.call("http.send", { ...params, ...prepared, context }, request.settings.timeoutMs + HTTP_CALL_SLACK_MS);
       if (outcome.ok && outcome.value.session) {
         // Values scripts set stay in main: the renderer only sees the variables view.
         workspaces.applySession(outcome.value.session, params.source?.collectionId ?? null);
@@ -56,7 +66,9 @@ export function registerRpcRouter(engine: EngineHost, history: HistoryStore, wor
     }
     if (method === "realtime.connect") {
       const params = parsed.data as MethodParams<"realtime.connect">;
-      const outcome = await engine.call("realtime.connect", { ...params, context: workspaces.contextFor(params.source ?? null) }, params.request.settings.timeoutMs + HTTP_CALL_SLACK_MS);
+      const settings = { ...params.request.settings, verifyTls: params.request.settings.verifyTls && prefs.prefs.request.verifyTls };
+      const request = { ...params.request, settings };
+      const outcome = await engine.call("realtime.connect", { ...params, request, context: workspaces.contextFor(params.source ?? null) }, settings.timeoutMs + HTTP_CALL_SLACK_MS);
       if (outcome.ok && outcome.value.kind === "open") realtime.opened(params.connId);
       return outcome;
     }
@@ -70,8 +82,11 @@ export function registerRpcRouter(engine: EngineHost, history: HistoryStore, wor
       const blocked = grpcFiles.forbiddenPath(params.request);
       if (blocked) return { ok: false, error: { code: ErrorCodes.forbidden, message: `Vuelve a elegir «${blocked}» con su botón: Sendix solo lee archivos que eliges tú o que usa una llamada guardada.` } };
       const context = workspaces.contextFor(params.source ?? null);
-      if (method === "grpc.describe") return engine.call("grpc.describe", { request: params.request, context });
-      const outcome = await engine.call("grpc.start", { ...params, context });
+      // With certificate checks off in Settings, verified TLS becomes TLS without verification.
+      const tls = params.request.settings.tls === "tls" && !prefs.prefs.request.verifyTls ? "insecure" : params.request.settings.tls;
+      const request = { ...params.request, settings: { ...params.request.settings, tls } };
+      if (method === "grpc.describe") return engine.call("grpc.describe", { request, context });
+      const outcome = await engine.call("grpc.start", { ...params, request, context });
       if (outcome.ok && outcome.value.kind === "started") realtime.callStarted(params.callId);
       return outcome;
     }
@@ -104,6 +119,7 @@ export function registerRpcRouter(engine: EngineHost, history: HistoryStore, wor
       platform: process.platform,
       arch: process.arch,
       packaged: app.isPackaged,
+      userData: app.getPath("userData"),
     };
   });
 

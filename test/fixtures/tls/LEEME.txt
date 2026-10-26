@@ -1,0 +1,2 @@
+Certificados solo para las pruebas automáticas (CA, servidor 127.0.0.1 y cliente sintéticos).
+No protegen nada: la clave de la CA se borró al generarlos y no se usan fuera de test/.

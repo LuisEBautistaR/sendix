@@ -421,6 +421,7 @@ function SettingsPanel({ tab }: { tab: RequestTab }) {
             max={600}
             value={s.timeoutMs / 1000}
             onChange={(e) => set({ timeoutMs: Math.min(600, Math.max(1, Math.round(Number(e.target.value) || 1))) * 1000 })}
+            data-testid="req-timeout"
           />{" "}
           segundos
         </span>
@@ -444,6 +445,52 @@ function SettingsPanel({ tab }: { tab: RequestTab }) {
           <Icon name="x" size={14} /> La verificación TLS está desactivada en esta petición.
         </p>
       )}
+
+      <div className="section-label flush">
+        Avanzado <span>«Heredar» usa lo que digan la carpeta o la colección; si no dicen nada, el comportamiento normal</span>
+      </div>
+      <label className="field">
+        <span>Máximo de redirecciones</span>
+        <span className="inline">
+          <input
+            className="mono short"
+            type="number"
+            min={0}
+            max={100}
+            placeholder="10"
+            value={s.maxRedirects ?? ""}
+            onChange={(e) => set({ maxRedirects: e.target.value === "" ? undefined : Math.min(100, Math.max(0, Math.round(Number(e.target.value) || 0))) })}
+            data-testid="req-max-redirects"
+          />
+          {s.maxRedirects === undefined && <span className="hint">heredado</span>}
+        </span>
+      </label>
+      {TRI_STATE.map(([key, label, help]) => (
+        <label className="field top" key={key}>
+          <span>{label}</span>
+          <span className="tri">
+            <select
+              className="mini-select"
+              value={s[key] === undefined ? "" : s[key] ? "yes" : "no"}
+              onChange={(e) => set({ [key]: e.target.value === "" ? undefined : e.target.value === "yes" })}
+              data-testid={`req-${key}`}
+            >
+              <option value="">Heredar</option>
+              <option value="yes">Sí</option>
+              <option value="no">No</option>
+            </select>
+            <small>{help}</small>
+          </span>
+        </label>
+      ))}
     </div>
   );
 }
+
+const TRI_STATE: Array<["followOriginalHttpMethod" | "followAuthorizationHeader" | "removeRefererHeaderOnRedirect" | "disableUrlEncoding" | "disableCookies", string, string]> = [
+  ["followOriginalHttpMethod", "Método original al redirigir", "Repite POST, PUT… en lugar de cambiar a GET (por defecto, no)."],
+  ["followAuthorizationHeader", "Authorization al redirigir", "Mantiene la cabecera aunque la redirección vaya a otro dominio (por defecto, no)."],
+  ["removeRefererHeaderOnRedirect", "Quitar Referer al redirigir", "No envía la cabecera Referer en el siguiente salto (por defecto, no)."],
+  ["disableUrlEncoding", "Enviar la URL sin codificar", "Tal cual la escribiste, sin convertir espacios ni acentos (por defecto, no)."],
+  ["disableCookies", "Sin cookies", "Ni envía ni guarda cookies en esta petición (por defecto, no)."],
+];

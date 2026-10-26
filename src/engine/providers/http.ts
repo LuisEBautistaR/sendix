@@ -1,8 +1,9 @@
 import runtime from "postman-runtime";
+import tough from "@postman/tough-cookie";
 import sdk from "postman-collection";
 import type { ProviderManifest } from "../provider-manager";
 import type { MethodParams, MethodResult } from "@shared/methods";
-import { MAX_RESPONSE_BYTES, type HttpOutcome, type HttpResponse } from "@shared/http";
+import { MAX_RESPONSE_BYTES, type HttpOutcome, type HttpResponse, type NetworkOptions } from "@shared/http";
 import { computeTimings, errorCode, mapCookies, toCollection, toCollectionItem, type HopOffsets } from "../http/convert";
 import { ScriptCollector, diff, hasScripts, snapshot } from "../http/scripts";
 
@@ -16,15 +17,69 @@ interface ActiveRun {
 const headersOf = (list: { all(): Array<{ key: string; value: string; disabled?: boolean }> } | undefined) =>
   (list?.all() ?? []).filter((h) => !h.disabled).map((h) => ({ key: h.key, value: String(h.value ?? "") }));
 
+/**
+ * Proxy, extra CA and client certificate as postman-runtime options. The files were read by
+ * main; the runtime asks for them by "path" through a resolver that only knows those values.
+ */
+function networkOptions(network: NetworkOptions | undefined): { run: Record<string, unknown>; requester: Record<string, unknown> } {
+  const run: Record<string, unknown> = {};
+  const requester: Record<string, unknown> = {};
+  if (!network) return { run, requester };
+  const p = network.proxy;
+  if (p) {
+    run["proxies"] = new sdk.ProxyConfigList({}, [
+      { match: "http+https://*/*", host: p.host, port: p.port, authenticate: Boolean(p.username), username: p.username, password: p.password },
+    ]);
+  }
+  const files = new Map<string, string | Buffer>();
+  if (network.ca) {
+    files.set("sendix:ca", network.ca);
+    requester["extendedRootCA"] = "sendix:ca";
+  }
+  const c = network.cert;
+  if (c && (c.pfx || (c.cert && c.key))) {
+    if (c.pfx) files.set("sendix:pfx", Buffer.from(c.pfx, "base64"));
+    if (c.cert) files.set("sendix:cert", c.cert);
+    if (c.key) files.set("sendix:key", c.key);
+    run["certificates"] = new sdk.CertificateList({}, [
+      {
+        matches: [c.match],
+        ...(c.pfx ? { pfx: { src: "sendix:pfx" } } : { cert: { src: "sendix:cert" }, key: { src: "sendix:key" } }),
+        ...(c.passphrase ? { passphrase: c.passphrase } : {}),
+      },
+    ]);
+  }
+  if (files.size) {
+    run["fileResolver"] = {
+      readFile(path: string, done: (err: Error | null, data?: string | Buffer) => void) {
+        const data = files.get(path);
+        if (data === undefined) done(new Error("Sendix solo lee los certificados configurados en Ajustes"));
+        else done(null, data);
+      },
+    };
+  }
+  return { run, requester };
+}
+
 export const httpProvider: ProviderManifest = {
   name: "http",
-  methods: ["send", "cancel"],
+  methods: ["send", "cancel", "dropJar"],
   load: () => {
     const runner = new runtime.Runner();
     const active = new Map<string, ActiveRun>();
+    // One jar for every send, like a browser; collection runs may ask for their own.
+    const newJar = () => new tough.CookieJar(undefined, { looseMode: true });
+    const sharedJar = newJar();
+    const runJars = new Map<string, ReturnType<typeof newJar>>();
+    const jarFor = (name: string | null) => {
+      if (!name) return sharedJar;
+      let jar = runJars.get(name);
+      if (!jar) runJars.set(name, (jar = newJar()));
+      return jar;
+    };
 
     const send = (params: unknown, call: { signal: AbortSignal }): Promise<MethodResult<"http.send">> => {
-      const { requestId, request, context = null, iterationData = null } = params as MethodParams<"http.send">;
+      const { requestId, request, context = null, iterationData = null, maxResponseBytes = MAX_RESPONSE_BYTES, cookieJar = null, network } = params as MethodParams<"http.send">;
       const startedAt = performance.now();
       const elapsed = () => Math.round(performance.now() - startedAt);
 
@@ -52,12 +107,14 @@ export const httpProvider: ProviderManifest = {
           resolve(outcome);
         };
 
+        const net = networkOptions(network);
         const options = {
           timeout: { request: request.settings.timeoutMs, script: SCRIPT_TIMEOUT_MS },
           // A failing pre-request script stops the request, as in Postman.
           stopOnError: true,
           ...(environment ? { environment } : {}),
           ...(iterationData ? { data: [iterationData] } : {}),
+          ...net.run,
           requester: {
             followRedirects: request.settings.followRedirects,
             strictSSL: request.settings.verifyTls,
@@ -66,7 +123,9 @@ export const httpProvider: ProviderManifest = {
             // No tracking headers: only what the user wrote plus standard ones.
             implicitCacheControl: false,
             implicitTraceHeader: false,
-            maxResponseSize: MAX_RESPONSE_BYTES,
+            maxResponseSize: maxResponseBytes,
+            cookieJar: jarFor(cookieJar),
+            ...net.requester,
           },
         };
 
@@ -145,6 +204,15 @@ export const httpProvider: ProviderManifest = {
         if (!run) return { cancelled: false };
         run.abort();
         return { cancelled: true };
+      },
+      dropJar: async (params): Promise<MethodResult<"http.dropJar">> => {
+        const { jar: name, keep } = params as MethodParams<"http.dropJar">;
+        const jar = runJars.get(name);
+        runJars.delete(name);
+        if (!jar || !keep) return { copied: 0 };
+        const cookies = (await jar.store.getAllCookies()) as unknown[];
+        for (const cookie of cookies) await sharedJar.store.putCookie(cookie);
+        return { copied: cookies.length };
       },
     };
   },

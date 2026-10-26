@@ -25,6 +25,7 @@ const paths = {
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   x: <path d="m7 7 10 10M17 7 7 17" />,
   down: <path d="m7 10 5 5 5-5" />,
+  up: <path d="m7 14 5-5 5 5" />,
   right: <path d="m10 7 5 5-5 5" />,
   box: (
     <>

@@ -2,7 +2,7 @@
  * Pure conversions between Sendix's request model and the Postman Collection v2.1
  * item format that postman-runtime executes, plus helpers that read its results.
  */
-import type { Cookie, HttpRequest, KeyValue, RawLanguage, SendContext, Timings } from "@shared/http";
+import { behaviorOf, type Cookie, type HttpRequest, type KeyValue, type RawLanguage, type SendContext, type Timings } from "@shared/http";
 import { scriptsToEvents } from "@shared/collection";
 
 const CONTENT_TYPES: Record<RawLanguage, string> = {
@@ -79,10 +79,15 @@ export function toCollectionItem(request: HttpRequest, userAgent: string): Recor
   }
 
   const event = request.scripts ? scriptsToEvents([], request.scripts) : [];
+  // The item's own behaviour; turning TLS checks or redirects off here also beats folders and collection.
+  const behavior: Record<string, unknown> = behaviorOf(request.settings);
+  if (!request.settings.verifyTls) behavior["strictSSL"] = false;
+  if (!request.settings.followRedirects) behavior["followRedirects"] = false;
   return {
     name: "Sendix request",
     request: { method: request.method.toUpperCase(), url: request.url, header, ...(body ? { body } : {}), ...(auth ? { auth } : {}) },
     ...(event.length ? { event } : {}),
+    ...(Object.keys(behavior).length ? { protocolProfileBehavior: behavior } : {}),
   };
 }
 
@@ -94,17 +99,21 @@ export function toCollection(item: Record<string, unknown>, context: SendContext
   if (!context) return { item: [item] };
   const [collectionAuth = null, ...folderAuths] = context.authChain;
   const [collectionEvents = null, ...folderEvents] = context.eventChain;
+  // postman-runtime resolves protocolProfileBehavior from the item up through folders and collection.
+  const [collectionBehavior = null, ...folderBehaviors] = context.behaviorChain ?? [];
   let node: Record<string, unknown> = item;
-  for (let i = Math.max(folderAuths.length, folderEvents.length) - 1; i >= 0; i--) {
+  for (let i = Math.max(folderAuths.length, folderEvents.length, folderBehaviors.length) - 1; i >= 0; i--) {
     const auth = folderAuths[i];
     const event = folderEvents[i];
-    node = { name: `folder-${i}`, item: [node], ...(auth ? { auth } : {}), ...(event ? { event } : {}) };
+    const behavior = folderBehaviors[i];
+    node = { name: `folder-${i}`, item: [node], ...(auth ? { auth } : {}), ...(event ? { event } : {}), ...(behavior ? { protocolProfileBehavior: behavior } : {}) };
   }
   return {
     item: [node],
     variable: context.collectionVariables.map((v) => ({ key: v.key, value: v.value, disabled: !v.enabled })),
     ...(collectionAuth ? { auth: collectionAuth } : {}),
     ...(collectionEvents ? { event: collectionEvents } : {}),
+    ...(collectionBehavior ? { protocolProfileBehavior: collectionBehavior } : {}),
   };
 }
 

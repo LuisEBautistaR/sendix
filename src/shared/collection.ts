@@ -6,7 +6,7 @@
  * protocol settings); everything else — scripts, saved examples, descriptions,
  * auth or body types Sendix cannot edit yet — stays exactly as it was.
  */
-import { DEFAULT_SETTINGS, EMPTY_SCRIPTS, RAW_LANGUAGES, type HttpRequest, type KeyValue, type RawLanguage, type RequestAuth, type RequestBody, type RequestScripts } from "./http";
+import { BEHAVIOR_KEYS, DEFAULT_SETTINGS, EMPTY_SCRIPTS, RAW_LANGUAGES, behaviorOf, type RequestSettings, type HttpRequest, type KeyValue, type RawLanguage, type RequestAuth, type RequestBody, type RequestScripts } from "./http";
 import { DEFAULT_REALTIME_SETTINGS, type RealtimeRequest } from "./realtime";
 import { DEFAULT_GRPC_SETTINGS, type GrpcRequest } from "./grpc";
 
@@ -116,6 +116,28 @@ export function authChainFor(collection: Json, id: string): Array<Json | null> {
   const path = findPath(collection, id) ?? [];
   const authOf = (node: Json) => (isObject(node["auth"]) ? (node["auth"] as Json) : null);
   return [authOf(collection), ...path.slice(0, -1).map(authOf)];
+}
+
+/** Request settings stored in an item's protocolProfileBehavior; values of the wrong type are ignored. */
+export function settingsFromBehavior(ppb: Json): RequestSettings {
+  const settings: RequestSettings = {
+    ...DEFAULT_SETTINGS,
+    followRedirects: ppb["followRedirects"] === false ? false : DEFAULT_SETTINGS.followRedirects,
+    verifyTls: ppb["strictSSL"] === false ? false : DEFAULT_SETTINGS.verifyTls,
+  };
+  const max = ppb["maxRedirects"];
+  if (typeof max === "number" && Number.isInteger(max) && max >= 0 && max <= 100) settings.maxRedirects = max;
+  for (const key of ["followOriginalHttpMethod", "followAuthorizationHeader", "removeRefererHeaderOnRedirect", "disableUrlEncoding", "disableCookies"] as const) {
+    if (typeof ppb[key] === "boolean") settings[key] = ppb[key] as boolean;
+  }
+  return settings;
+}
+
+/** protocolProfileBehavior of the collection, then of each enclosing folder (null where a level has none). */
+export function behaviorChainFor(collection: Json, id: string): Array<Json | null> {
+  const path = findPath(collection, id) ?? [];
+  const ppbOf = (node: Json) => (isObject(node["protocolProfileBehavior"]) && Object.keys(node["protocolProfileBehavior"] as Json).length ? (node["protocolProfileBehavior"] as Json) : null);
+  return [ppbOf(collection), ...path.slice(0, -1).map(ppbOf)];
 }
 
 /** Scripts that run around a request: the collection's events, then each enclosing folder's (null where a level has none). */
@@ -334,11 +356,7 @@ export function itemToRequest(item: Json): ItemRequest {
       headers: headerRows(request["header"]),
       body: bodyFromItem(request["body"]),
       auth: authFromItem(request["auth"]),
-      settings: {
-        ...DEFAULT_SETTINGS,
-        followRedirects: ppb["followRedirects"] === false ? false : DEFAULT_SETTINGS.followRedirects,
-        verifyTls: ppb["strictSSL"] === false ? false : DEFAULT_SETTINGS.verifyTls,
-      },
+      settings: settingsFromBehavior(ppb),
       scripts: scriptsFromEvents(item["event"]),
     },
     disabledParams,
@@ -425,6 +443,8 @@ export function applyRequest(item: Json, request: HttpRequest, disabledParams: r
   else ppb["followRedirects"] = false;
   if (request.settings.verifyTls) delete ppb["strictSSL"];
   else ppb["strictSSL"] = false;
+  for (const key of BEHAVIOR_KEYS) delete ppb[key];
+  Object.assign(ppb, behaviorOf(request.settings));
   if (Object.keys(ppb).length) item["protocolProfileBehavior"] = ppb;
   else delete item["protocolProfileBehavior"];
 }

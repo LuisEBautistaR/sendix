@@ -17,6 +17,7 @@ import {
   applyRealtime,
   applyRequest,
   authChainFor,
+  behaviorChainFor,
   collectionId,
   collectionName,
   collectionVariables,
@@ -523,6 +524,7 @@ export class Workspace {
     if (!c || !findItem(c.json, source.itemId)) return empty;
     return {
       authChain: authChainFor(c.json, source.itemId),
+      behaviorChain: behaviorChainFor(c.json, source.itemId),
       eventChain: eventChainFor(c.json, source.itemId),
       collectionVariables: this.#collectionValues(source.collectionId, c.json),
       environment,
@@ -539,6 +541,61 @@ export class Workspace {
     };
     put(this.#session.environment, this.#activeEnvironmentId ?? "", changes.environment);
     if (collectionId && this.#collections.has(collectionId)) put(this.#session.collection, collectionId, changes.collection);
+  }
+
+  /**
+   * Writes what scripts set for the active environment and for this collection into
+   * their files, then forgets it. Secret variables keep going to the encrypted store.
+   * Returns how many variables changed.
+   */
+  async persistSession(collectionId: string | null): Promise<number> {
+    let written = 0;
+    const envId = this.#activeEnvironmentId;
+    const envSession = envId ? this.#session.environment.get(envId) : undefined;
+    if (envId && envSession?.size) {
+      const e = this.#environment(envId);
+      const values = (Array.isArray(e.json["values"]) ? (e.json["values"] as unknown[]) : []).filter(isObject);
+      for (const [key, value] of envSession) {
+        const i = values.findIndex((v) => v["key"] === key);
+        const secret = i >= 0 && values[i]!["type"] === "secret";
+        if (value === null) {
+          if (i < 0) continue;
+          if (secret) await this.#deps.secrets.delete(this.#secretKey(envId, key));
+          values.splice(i, 1);
+        } else if (secret) {
+          await this.#deps.secrets.set(this.#secretKey(envId, key), value);
+        } else if (i >= 0) {
+          values[i] = { ...values[i], value, enabled: true };
+        } else {
+          values.push({ key, value, type: "default", enabled: true });
+        }
+        written++;
+      }
+      e.json["values"] = values;
+      await this.#queue(e.file, () => serialize(e.json));
+      this.#session.environment.delete(envId);
+    }
+    const colSession = collectionId ? this.#session.collection.get(collectionId) : undefined;
+    if (collectionId && colSession?.size && this.#collections.has(collectionId)) {
+      const c = this.#collection(collectionId);
+      const vars = (Array.isArray(c.json["variable"]) ? (c.json["variable"] as unknown[]) : []).filter(isObject);
+      for (const [key, value] of colSession) {
+        const i = vars.findIndex((v) => v["key"] === key);
+        if (value === null) {
+          if (i < 0) continue;
+          vars.splice(i, 1);
+        } else if (i >= 0) {
+          vars[i] = { ...vars[i], value };
+        } else {
+          vars.push({ key, value });
+        }
+        written++;
+      }
+      c.json["variable"] = vars;
+      await this.#writeCollection(collectionId);
+      this.#session.collection.delete(collectionId);
+    }
+    return written;
   }
 
   /** Forgets every value set by scripts. */

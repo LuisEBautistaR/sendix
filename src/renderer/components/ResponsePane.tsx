@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { HttpResponse, ScriptReport, Timings } from "@shared/http";
-import { useStore, type BodyView, type RequestTab, type ResponsePanel } from "../state/store";
+import { useStore, type BodyFormat, type BodyView, type RequestTab, type ResponsePanel } from "../state/store";
 import { decodeBody } from "../lib/body";
-import { clockTime, explainError, formatBytes, formatMs } from "../lib/format";
+import { clockTime, explainError, formatBytes, formatMs, isTlsError } from "../lib/format";
 import { Icon } from "../Icon";
-import { CodeView } from "./CodeView";
+import { CodeViewer, type CodeViewerHandle, type ViewerLanguage } from "./CodeViewer";
+import { filterJson, filterXml, prettyXml } from "../lib/filter";
 import { ConsoleList, ScriptErrors, TestList, testSummary } from "./ScriptResults";
 
 const STATUS_TEXT_FALLBACK: Record<number, string> = { 200: "OK", 201: "Created", 204: "No Content", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 500: "Internal Server Error" };
@@ -88,6 +89,7 @@ function Failure({ code, message, tab, elapsedMs, scripts }: { code: string; mes
     <div className="pane response-state" data-testid="response-error">
       <p className="state-title err">{code === "SCRIPT_ERROR" ? "La petición no se envió" : "No hubo respuesta"}</p>
       <p>{explainError(code, tab.lastTimeoutMs ?? undefined)}</p>
+      {isTlsError(code) && <TlsActions tab={tab} />}
       <dl className="facts compact">
         <dt>Código</dt>
         <dd className="mono" data-testid="error-code">{code}</dd>
@@ -107,6 +109,31 @@ function Failure({ code, message, tab, elapsedMs, scripts }: { code: string; mes
           <ConsoleList entries={scripts.console} />
         </>
       )}
+    </div>
+  );
+}
+
+/** Quick ways out of a certificate error: send this one without verification, or fix it for good in Settings. */
+function TlsActions({ tab }: { tab: RequestTab }) {
+  const { setDraft, send, openSettings } = useStore.getState();
+  return (
+    <div className="state-actions">
+      {tab.draft.settings.verifyTls && (
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => {
+            setDraft(tab.id, (d) => ({ ...d, settings: { ...d.settings, verifyTls: false } }));
+            void send(tab.id);
+          }}
+          data-testid="tls-send-insecure"
+        >
+          Reenviar sin verificar esta petición
+        </button>
+      )}
+      <button type="button" className="link-btn" onClick={openSettings} data-testid="tls-open-settings">
+        CA y certificados de cliente en Ajustes
+      </button>
     </div>
   );
 }
@@ -196,42 +223,70 @@ function ResponseView({ tab, response, scripts }: { tab: RequestTab; response: H
   );
 }
 
+const FORMATS: Array<[BodyFormat, string]> = [
+  ["auto", "Automático"],
+  ["json", "JSON"],
+  ["xml", "XML"],
+  ["html", "HTML"],
+  ["text", "Texto"],
+];
+
 function BodyPanel({ tab, response }: { tab: RequestTab; response: HttpResponse }) {
   const { patch } = useStore.getState();
-  const decoded = useMemo(() => decodeBody(response.body, response.headers), [response]);
+  const decoded = useMemo(() => decodeBody(response.body, response.headers, tab.bodyFormat), [response, tab.bodyFormat]);
   const [wrap, setWrap] = useState(false);
   const [copied, setCopied] = useState(false);
+  const viewer = useRef<CodeViewerHandle>(null);
+  const textual = decoded.kind === "json" || decoded.kind === "xml" || decoded.kind === "html" || decoded.kind === "text";
+  const canPreview = decoded.kind === "image" || decoded.kind === "html";
   const views: Array<[BodyView, string]> = [
     ["pretty", "Formateado"],
     ["raw", "Crudo"],
-    ...(decoded.kind === "image" ? ([["preview", "Vista previa"]] as Array<[BodyView, string]>) : []),
+    ...(canPreview ? ([["preview", "Vista previa"]] as Array<[BodyView, string]>) : []),
   ];
-  const view: BodyView = decoded.kind === "image" ? (tab.bodyView === "raw" ? "raw" : "preview") : tab.bodyView === "preview" ? "pretty" : tab.bodyView;
-  const text = view === "pretty" && decoded.pretty ? decoded.pretty : decoded.text;
+  const view: BodyView = decoded.kind === "image" ? (tab.bodyView === "raw" ? "raw" : "preview") : tab.bodyView === "preview" && !canPreview ? "pretty" : tab.bodyView;
+  const pretty = useMemo(() => (decoded.kind === "xml" ? prettyXml(decoded.text) : decoded.pretty), [decoded]);
+  const filterable = view === "pretty" && (decoded.kind === "json" || decoded.kind === "xml");
+  const expression = filterable ? tab.bodyFilter.trim() : "";
+  const filtered = useMemo(() => (expression ? (decoded.kind === "json" ? filterJson(decoded.text, expression) : filterXml(decoded.text, expression)) : null), [decoded, expression]);
+  const shown = filtered?.ok ? filtered.text : view === "pretty" && pretty ? pretty : decoded.text;
+  const language: ViewerLanguage = view === "raw" ? "text" : decoded.kind === "json" || decoded.kind === "xml" || decoded.kind === "html" ? decoded.kind : "text";
 
   return (
     <>
       <div className="toolbar">
         <span className="seg">
           {views.map(([id, label]) => (
-            <button key={id} type="button" aria-pressed={view === id} onClick={() => patch(tab.id, { bodyView: id })}>
+            <button key={id} type="button" aria-pressed={view === id} onClick={() => patch(tab.id, { bodyView: id })} data-testid={`body-view-${id}`}>
               {label}
             </button>
           ))}
         </span>
+        <select className="mini-select" value={tab.bodyFormat} onChange={(e) => patch(tab.id, { bodyFormat: e.target.value as BodyFormat })} aria-label="Leer el cuerpo como" title="Leer el cuerpo como" data-testid="body-format">
+          {FORMATS.map(([id, label]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </select>
         <span className="mini-label mono">{decoded.contentType.split(";")[0] || decoded.kind}</span>
         <span className="end">
+          {textual && view !== "preview" && (
+            <button type="button" className="icon-btn" title="Buscar en el cuerpo (Ctrl F)" aria-label="Buscar en el cuerpo" onClick={() => viewer.current?.openSearch()} data-testid="body-search">
+              <Icon name="search" size={14} />
+            </button>
+          )}
           <button type="button" className="icon-btn" title="Ajustar líneas" aria-label="Ajustar líneas" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>
             <Icon name="wrap" size={14} />
           </button>
           <button
             type="button"
             className="icon-btn"
-            title={copied ? "Copiado" : "Copiar cuerpo"}
+            title={copied ? "Copiado" : filtered?.ok ? "Copiar el resultado del filtro" : "Copiar cuerpo"}
             aria-label="Copiar cuerpo"
             disabled={!decoded.text}
             onClick={() => {
-              void navigator.clipboard.writeText(decoded.pretty ?? decoded.text).then(() => {
+              void navigator.clipboard.writeText(shown).then(() => {
                 setCopied(true);
                 setTimeout(() => setCopied(false), 1500);
               });
@@ -241,16 +296,65 @@ function BodyPanel({ tab, response }: { tab: RequestTab; response: HttpResponse 
           </button>
         </span>
       </div>
-      <div className="pane-body">
+      {filterable && (
+        <div className="body-filter">
+          <span className="mini-label">{decoded.kind === "json" ? "JSONPath" : "XPath"}</span>
+          <input
+            className="mono"
+            value={tab.bodyFilter}
+            onChange={(e) => patch(tab.id, { bodyFilter: e.target.value })}
+            placeholder={decoded.kind === "json" ? "$.productos[*].nombre" : "//producto/nombre"}
+            spellCheck={false}
+            aria-label={decoded.kind === "json" ? "Filtrar con JSONPath" : "Filtrar con XPath"}
+            aria-invalid={filtered?.ok === false}
+            data-testid="body-filter"
+          />
+          {filtered && (
+            <span className={`filter-state${filtered.ok ? "" : " bad"}`} data-testid="body-filter-state" role="status">
+              {filtered.ok ? `${filtered.count} ${filtered.count === 1 ? "resultado" : "resultados"}` : filtered.error}
+            </span>
+          )}
+          {tab.bodyFilter && (
+            <button type="button" className="icon-btn" aria-label="Quitar el filtro" title="Quitar el filtro" onClick={() => patch(tab.id, { bodyFilter: "" })}>
+              <Icon name="x" size={14} />
+            </button>
+          )}
+        </div>
+      )}
+      <div className={`pane-body${textual && view !== "preview" ? " viewer-host" : ""}`}>
         {decoded.kind === "empty" && <p className="hint pad">La respuesta no tiene cuerpo.</p>}
         {decoded.kind === "binary" && <p className="hint pad">Contenido binario de {formatBytes(response.sizes.body)}; no se muestra como texto.</p>}
         {decoded.kind === "image" && view === "preview" &&
           (decoded.imageUrl ? <img className="preview-img" src={decoded.imageUrl} alt="Imagen recibida" /> : <p className="hint pad">La imagen supera 10 MB y no se previsualiza.</p>)}
-        {decoded.kind !== "empty" && decoded.kind !== "binary" && !(decoded.kind === "image") && (
-          <CodeView text={text} json={decoded.kind === "json" && view === "pretty"} wrap={wrap} testId="response-body" />
-        )}
+        {decoded.kind === "html" && view === "preview" && <HtmlPreview html={decoded.text} />}
+        {textual && view !== "preview" && <CodeViewer ref={viewer} text={shown} language={language} wrap={wrap} label="Cuerpo de la respuesta" testId="response-body" />}
       </div>
     </>
+  );
+}
+
+/** HTML rendered by main in a sandboxed iframe: no scripts, no network, no way back into the app. */
+function HtmlPreview({ html }: { html: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [refused, setRefused] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setUrl(null);
+    void window.sendix.app.preview(html).then((u) => {
+      if (!live) return;
+      setUrl(u);
+      setRefused(u === null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [html]);
+  if (refused) return <p className="hint pad">Esta página es demasiado grande para la vista previa. Usa la vista Formateado.</p>;
+  return (
+    <div className="html-preview">
+      <p className="hint preview-note">Vista previa sin scripts ni conexión: no se cargan imágenes ni hojas de estilo externas.</p>
+      {url && <iframe src={url} sandbox="" title="Vista previa de la respuesta HTML" data-testid="html-preview" />}
+    </div>
   );
 }
 

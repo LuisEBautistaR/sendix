@@ -21,6 +21,18 @@ export const IpcChannels = {
   updatesCheck: "sendix:updates-check",
   updatesInstall: "sendix:updates-install",
   updatesChanged: "sendix:updates-changed",
+  prefsGet: "sendix:prefs-get",
+  prefsSet: "sendix:prefs-set",
+  prefsChanged: "sendix:prefs-changed",
+  profileReveal: "sendix:profile-reveal",
+  prefsPick: "sendix:prefs-pick",
+  prefsSecret: "sendix:prefs-secret",
+  prefsSecrets: "sendix:prefs-secrets",
+  previewPut: "sendix:preview-put",
+  runsList: "sendix:runs-list",
+  runsGet: "sendix:runs-get",
+  runsDelete: "sendix:runs-delete",
+  runsExport: "sendix:runs-export",
 } as const;
 
 export interface UpdateState {
@@ -69,4 +81,6 @@ export interface AppInfo {
   platform: string;
   arch: string;
   packaged: boolean;
+  /** Profile folder: settings, history and encrypted secrets. */
+  userData: string;
 }

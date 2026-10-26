@@ -13,6 +13,7 @@ import { Notices, TitleBar } from "./components/TitleBar";
 import { RunnerView } from "./components/RunnerView";
 import { RealtimeEditor, RealtimeLine, RealtimeLog } from "./components/RealtimePane";
 import { GrpcEditor, GrpcLine, GrpcResponse } from "./components/GrpcPane";
+import { SettingsView } from "./components/SettingsView";
 
 const RAIL: Array<{ view: SidebarView; icon: IconName; label: string }> = [
   { view: "collections", icon: "folder", label: "Colecciones" },
@@ -26,7 +27,7 @@ function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey) return;
-      const { tabs, activeId, send, newRequest, close, save, connect, sendMessage, invokeGrpc, sendGrpc } = useStore.getState();
+      const { tabs, activeId, send, newRequest, close, save, connect, sendMessage, invokeGrpc, sendGrpc, openSettings } = useStore.getState();
       const active = tabs.find((t) => t.id === activeId);
       const key = e.key.toLowerCase();
       if (key === "enter" && active?.kind === "request") {
@@ -48,6 +49,9 @@ function useShortcuts() {
       } else if (key === "w" && active) {
         e.preventDefault();
         close(active.id);
+      } else if (key === ",") {
+        e.preventDefault();
+        openSettings();
       } else if (key === "l") {
         e.preventDefault();
         document.querySelector<HTMLInputElement>('[data-testid="url"]')?.focus();
@@ -55,6 +59,15 @@ function useShortcuts() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+}
+
+function usePrefs() {
+  useEffect(() => {
+    const { setPrefs } = useStore.getState();
+    const off = window.sendix.prefs.onChanged(setPrefs);
+    void window.sendix.prefs.get().then((p) => p && setPrefs(p));
+    return off;
   }, []);
 }
 
@@ -77,6 +90,7 @@ function useWorkspace() {
 
 export function App() {
   useShortcuts();
+  usePrefs();
   useWorkspace();
   const sidebar = useStore((s) => s.sidebar);
   const activeTab = useStore((s) => s.tabs.find((t) => t.id === s.activeId));
@@ -84,7 +98,7 @@ export function App() {
   const engine = useEngineStatus(noop);
   const [version, setVersion] = useState("");
   useEffect(() => void window.sendix.app.info().then((i) => i && setVersion(i.version)), []);
-  const { setSidebar, openSystem } = useStore.getState();
+  const { setSidebar, openSystem, openSettings } = useStore.getState();
 
   return (
     <div className="app">
@@ -105,6 +119,16 @@ export function App() {
           </button>
         ))}
         <span className="spacer" />
+        <button
+          type="button"
+          title="Ajustes (Ctrl+,)"
+          aria-label="Ajustes"
+          aria-current={activeTab?.kind === "settings" ? "page" : undefined}
+          onClick={openSettings}
+          data-testid="rail-settings"
+        >
+          <Icon name="sliders" size={18} />
+        </button>
         <button
           type="button"
           title="Estado del sistema"
@@ -142,6 +166,7 @@ export function App() {
         )}
         {activeTab?.kind === "environment" && <EnvironmentEditor key={activeTab.id} tab={activeTab} />}
         {activeTab?.kind === "system" && <SystemStatus />}
+        {activeTab?.kind === "settings" && <SettingsView />}
         {activeTab?.kind === "runner" && <RunnerView key={activeTab.id} tab={activeTab} />}
         {activeTab?.kind === "grpc" && (
           <section className="screen" key={activeTab.id}>

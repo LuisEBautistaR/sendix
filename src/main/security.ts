@@ -31,6 +31,10 @@ export function hardenApp(): void {
     contents.on("will-redirect", (event, url) => {
       if (!isTrustedOrigin(url)) event.preventDefault();
     });
+    // HTML previews live in a sandboxed iframe: a link or a meta refresh must not take it to the network.
+    contents.on("will-frame-navigate", (event) => {
+      if (!event.isMainFrame && !isTrustedOrigin(event.url)) event.preventDefault();
+    });
     contents.on("will-attach-webview", (event) => event.preventDefault());
   });
 }

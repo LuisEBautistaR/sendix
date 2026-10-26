@@ -72,6 +72,65 @@ Estado: **M6, instalador y actualizaciones**. Están completos todos los hitos d
 - **Actualizaciones automáticas** con `electron-updater` desde las versiones publicadas en GitHub: la versión instalada busca unos segundos después de arrancar y cuando se lo pides en la pestaña Sistema, descarga en segundo plano y se instala al reiniciar (botón «Reiniciar para actualizar») o al cerrar. Las compilaciones de desarrollo nunca se actualizan.
 - **Publicar una versión:** sube la versión en `package.json` y crea la etiqueta `vX.Y.Z`. El flujo `.github/workflows/release.yml` comprueba que la etiqueta coincide, ejecuta `npm run check`, genera el instalador y deja un borrador de release con el `.exe`, su `.sha256`, el `.blockmap` y `latest.yml`. Tiene un paso de firma con SignPath que solo se ejecuta si existe el secreto `SIGNPATH_API_TOKEN`.
 
+**Ajustes y tema (0.2, U1)**
+- Pantalla **Ajustes** en la barra lateral o con `Ctrl ,`. Se guarda en `settings.json` del perfil y se aplica al momento.
+- **Tema:** Sistema (sigue a Windows), Claro u Oscuro. Lo aplica Electron (`nativeTheme.themeSource`), así que la barra de título nativa y la interfaz cambian juntas.
+- **Editor de código:** tamaño de letra (también en las respuestas), sangría de 2 o 4 espacios y cierre automático de llaves y comillas.
+- **Peticiones:**
+  - tiempo máximo para peticiones nuevas y para las guardadas al abrirlas o ejecutarlas;
+  - tamaño máximo de respuesta;
+  - interruptores globales de verificación TLS y de redirecciones. Solo pueden desactivar: con la verificación apagada, ninguna conexión HTTP, WebSocket, Socket.IO ni gRPC la hace;
+  - cabecera `Cache-Control: no-cache` opcional.
+
+  Los aplica el proceso principal, así que valen también para el ejecutor de colecciones.
+- **Datos de este equipo:** carpeta del perfil, borrar el historial y acceso al estado del sistema.
+
+**Visor de respuesta (0.2, U2)**
+- **Visor de CodeMirror de solo lectura:**
+  - pliega objetos, arreglos y etiquetas;
+  - busca con `Ctrl F` o con su botón, con mayúsculas, expresiones regulares y palabra completa;
+  - pone números de línea;
+  - solo pinta las líneas visibles, así que ya no hay corte de 20 000 líneas. Por encima de 5 MB se muestra sin colores para que el desplazamiento siga fluido.
+- **Filtro:**
+  - JSONPath (`jsonpath-plus` en modo `safe`, sin `eval`, compatible con la CSP) para JSON;
+  - XPath (el evaluador del propio navegador) para XML;
+  - muestra el número de resultados o el error, y el botón de copiar copia el resultado filtrado.
+- **Formatos:** XML indentado y **formato forzado**: Automático, JSON, XML, HTML o Texto.
+- **Vista previa de HTML** en un `iframe` con `sandbox` servido por el proceso principal (`app://sendix/__preview/…`):
+  - con su propia CSP, que solo permite estilos en línea e imágenes `data:`;
+  - sin scripts y sin red, y la navegación fuera de la app está bloqueada.
+
+**Ejecutor de colecciones (0.2, U3)**
+- **Elegir y ordenar:** casillas por petición (Todas / Ninguna) y botones para subir o bajar; «Orden de la colección» lo restablece.
+- **Opciones:**
+  - detener en el primer fallo (sin respuesta, test que falla o script con error);
+  - guardar las variables al terminar: lo que los scripts dejan en el entorno activo y la colección se escribe en los archivos, y los secretos siguen cifrados;
+  - conservar las respuestas (cabeceras y hasta 256 KB de cuerpo por fila, solo en memoria);
+  - guardar o no la salida de consola.
+- **Cookies:** el motor tiene un único almacén de cookies para todos los envíos, como un navegador. Una ejecución puede usarlo o **empezar sin cookies** con uno propio, y al final añadir sus cookies al de Sendix o descartarlas.
+- **Historial de ejecuciones** en `sendix.db`: las 50 últimas, con hasta 5 000 filas cada una. Se pueden **ver**, **repetir** con la misma selección y opciones, **exportar a JSON** o borrar. Los archivos de datos de más de 1 MB no se guardan; al repetir se piden de nuevo.
+
+**Red y certificados (0.2, U4)**
+- **Proxy** para peticiones HTTP:
+  - sin proxy;
+  - del sistema: Electron resuelve el proxy de Windows para cada URL, PAC incluido;
+  - propio: servidor, usuario y contraseña cifrada con `safeStorage`, más una lista de excepciones (nombres exactos, `*.dominio` o `.dominio`).
+- **CA propia** (PEM): se confía en ella además de en las del sistema.
+- **Certificados de cliente por host y puerto:** CRT + KEY o PFX/P12, con contraseña cifrada. Solo se envían al host y puerto configurados.
+- **Cómo llegan los archivos al motor:**
+  - las rutas solo se aceptan si se eligieron en un diálogo del proceso principal;
+  - el proceso principal lee los archivos y el motor los recibe en memoria a través de un lector que no conoce otra cosa.
+- **Errores de certificado explicados:** CA desconocida, autofirmado, caducado, nombre que no coincide, certificado de cliente requerido… Con dos acciones rápidas: «Reenviar sin verificar esta petición» o ir a Ajustes.
+- **Ajustes avanzados por petición** guardados en `protocolProfileBehavior` (v2.1), cada uno con «Heredar», «Sí» o «No»:
+  - máximo de redirecciones;
+  - método original al redirigir;
+  - Authorization al redirigir;
+  - quitar Referer;
+  - URL sin codificar;
+  - sin cookies.
+
+  «Heredar» toma el valor de la carpeta o la colección: el motor envuelve la petición con el `protocolProfileBehavior` de cada nivel.
+
 ## Requisitos
 
 - Node.js 22.12 o superior (probado con 24.22) y npm 11.
@@ -130,6 +189,8 @@ Errores siempre como `{ ok: false, error: { code, message } }`, nunca excepcione
 | Sin ventanas emergentes ni navegación fuera de la app; todos los permisos web denegados | E2E: `window.open` y cambio de `location` |
 | Scripts de colecciones ejecutados solo en el motor (`utilityProcess`), con 30 s de tiempo máximo por script; la interfaz recibe resultados ya validados con zod y con los secretos ocultos | unitarios del proveedor HTTP |
 | El motor solo lee los `.proto` y certificados que eliges en un diálogo o que usa una llamada gRPC guardada en la carpeta de trabajo | E2E: una ruta no elegida se rechaza con `FORBIDDEN` |
+| La vista previa de HTML no ejecuta scripts ni pide nada a la red (iframe con `sandbox`, CSP propia y navegación de subframes bloqueada) | E2E: el script no corre y la imagen externa no se pide |
+| El motor solo lee la CA y los certificados de cliente elegidos en un diálogo de Ajustes, y los recibe en memoria; las contraseñas del proxy y de los certificados se cifran y nunca llegan a la interfaz | E2E: CA, mTLS y proxy con autenticación contra servidores locales de prueba |
 | El editor de código vive en un shadow root con hojas de estilo construidas: la CSP sigue sin permitir estilos en línea | E2E: el editor se ve con sus estilos con la CSP de producción |
 | IPC solo desde el marco principal de la app; métodos de prueba solo con `SENDIX_TEST=1` en builds sin empaquetar | E2E + unitarios |
 | Rutas de `app://` sin escapar de la carpeta del renderer | unitarios (incluye `..%5c`) |

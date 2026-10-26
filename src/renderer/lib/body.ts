@@ -31,7 +31,8 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export function decodeBody(bytes: Uint8Array, headers: readonly Header[]): DecodedBody {
+/** `format` forces how text is read ("auto" detects it); images and binary are never forced. */
+export function decodeBody(bytes: Uint8Array, headers: readonly Header[], format: "auto" | "json" | "xml" | "html" | "text" = "auto"): DecodedBody {
   const contentType = headerValue(headers, "content-type").toLowerCase();
   const base = { pretty: null, imageUrl: null, contentType };
   if (bytes.byteLength === 0) return { ...base, kind: "empty", text: "" };
@@ -51,6 +52,14 @@ export function decodeBody(bytes: Uint8Array, headers: readonly Header[]): Decod
   }
 
   const trimmed = text.trimStart();
+  if (format === "json") {
+    try {
+      return { ...base, kind: "json", text, pretty: JSON.stringify(JSON.parse(text), null, 2) };
+    } catch {
+      return { ...base, kind: "json", text };
+    }
+  }
+  if (format === "xml" || format === "html" || format === "text") return { ...base, kind: format, text };
   if (mime.includes("json") || trimmed.startsWith("{") || trimmed.startsWith("[")) {
     try {
       return { ...base, kind: "json", text, pretty: JSON.stringify(JSON.parse(text), null, 2) };

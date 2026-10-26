@@ -5,7 +5,9 @@ import { applyDevelopmentCsp, registerAppScheme, serveRenderer } from "./protoco
 import { denyPermissions, hardenApp, setDevelopmentOrigin } from "./security";
 import { EngineHost } from "./engine-host";
 import { HistoryStore } from "./history";
+import { RunStore } from "./runs";
 import { SettingsStore } from "./settings";
+import { PrefsService } from "./prefs";
 import { EncryptedSecretStore } from "./workspace/secrets";
 import { WorkspaceController } from "./workspace/controller";
 import { broadcast, registerRpcRouter } from "./rpc-router";
@@ -14,6 +16,7 @@ import { RunnerController } from "./runner";
 import { RealtimeRelay } from "./realtime";
 import { GrpcFiles } from "./grpc-files";
 import { createMainWindow } from "./window";
+import { registerPreviews } from "./preview";
 
 const mainDir = dirname(fileURLToPath(import.meta.url));
 const devUrl = !app.isPackaged ? (process.env["ELECTRON_RENDERER_URL"] ?? null) : null;
@@ -36,6 +39,7 @@ if (!app.requestSingleInstanceLock()) {
 
   const engine = new EngineHost({ entry: join(mainDir, "engine.js"), testMode, version: app.getVersion(), log: (m, d) => log(m, d) });
   let history: HistoryStore | null = null;
+  let runs: RunStore | null = null;
   let mainWindow: BrowserWindow | null = null;
 
   app.on("second-instance", () => {
@@ -51,14 +55,19 @@ if (!app.requestSingleInstanceLock()) {
 
     const userData = app.getPath("userData");
     history = new HistoryStore(join(userData, "sendix.db"));
+    runs = new RunStore(join(userData, "sendix.db"));
+    runs.register(app.getVersion());
     const settings = await SettingsStore.open(join(userData, "settings.json"));
     const secrets = await EncryptedSecretStore.open(join(userData, "secrets.bin"));
+    const prefs = new PrefsService(settings, secrets);
+    prefs.register(broadcast);
+    registerPreviews();
     const workspaces = new WorkspaceController(settings, secrets, engine);
     workspaces.register();
     const grpcFiles = new GrpcFiles(workspaces);
     grpcFiles.register();
-    registerRpcRouter(engine, history, workspaces, new RealtimeRelay(engine), grpcFiles, testMode);
-    new RunnerController(engine, workspaces).register();
+    registerRpcRouter(engine, history, workspaces, new RealtimeRelay(engine), grpcFiles, prefs, testMode);
+    new RunnerController(engine, workspaces, prefs, runs).register();
     const updates = new UpdateService((m, d) => log(m, d));
     updates.register(broadcast);
     engine.start();
@@ -72,5 +81,6 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     engine.stop();
     history?.close();
+    runs?.close();
   });
 }

@@ -7,6 +7,7 @@ function useLabel(tab: Tab): { method: string | null; name: string; title: strin
   const environments = useStore((s) => s.workspace?.environments);
   const collections = useStore((s) => s.workspace?.collections);
   if (tab.kind === "system") return { method: null, name: "Estado del sistema", title: "Estado del sistema", dirty: false };
+  if (tab.kind === "settings") return { method: null, name: "Ajustes", title: "Ajustes", dirty: false };
   if (tab.kind === "runner") {
     const collection = collections?.find((c) => c.id === tab.collectionId);
     const name = `Ejecutar ${collection?.name ?? "colección"}`;
@@ -37,7 +38,7 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
         {method ? (
           <span className={`meth ${methodClass(method)}`}>{method === "DELETE" ? "DEL" : method}</span>
         ) : (
-          <Icon name={tab.kind === "environment" ? "layers" : tab.kind === "runner" ? "run" : "pulse"} size={14} />
+          <Icon name={tab.kind === "environment" ? "layers" : tab.kind === "runner" ? "run" : tab.kind === "settings" ? "sliders" : "pulse"} size={14} />
         )}
         <span className={`name${(tab.kind === "request" || tab.kind === "realtime" || tab.kind === "grpc") && !tab.source ? " scratch" : ""}`}>{name}</span>
         {sending && <span className="sending-dot" aria-label="Enviando" />}

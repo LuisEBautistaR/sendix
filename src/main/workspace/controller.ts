@@ -49,6 +49,14 @@ export class WorkspaceController {
     this.#changed();
   }
 
+  /** Writes what scripts set into the files (runner option), then tells the renderer. */
+  async persistSession(collectionId: string | null): Promise<number> {
+    if (!this.#workspace) return 0;
+    const written = await this.#workspace.persistSession(collectionId);
+    if (written) this.#changed();
+    return written;
+  }
+
   async restoreLast(): Promise<void> {
     const last = this.settings.data.lastWorkspace;
     if (!last) return;

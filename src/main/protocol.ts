@@ -2,6 +2,7 @@ import { net, protocol, session } from "electron";
 import { pathToFileURL } from "node:url";
 import { APP_SCHEME, resolveAppPath } from "./app-path";
 import { PRODUCTION_CSP, developmentCsp } from "./csp";
+import { PREVIEW_CSP, previewHtml } from "./preview";
 
 /** Must run before the app is ready. */
 export function registerAppScheme(): void {
@@ -13,6 +14,12 @@ export function registerAppScheme(): void {
 /** Serves the renderer build from app://sendix/… with the production CSP on every response. */
 export function serveRenderer(rendererDir: string): void {
   protocol.handle(APP_SCHEME, async (request) => {
+    const preview = previewHtml(new URL(request.url).pathname);
+    if (preview !== null) {
+      return new Response(preview, {
+        headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": PREVIEW_CSP, "X-Content-Type-Options": "nosniff" },
+      });
+    }
     const file = resolveAppPath(rendererDir, request.url);
     if (!file) return new Response("Not found", { status: 404 });
     const response = await net.fetch(pathToFileURL(file).toString());

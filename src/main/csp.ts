@@ -6,6 +6,8 @@ export const PRODUCTION_CSP = [
   "img-src 'self' data:",
   "font-src 'self'",
   "connect-src 'self'",
+  // Only the sandboxed HTML previews (main/preview.ts).
+  "frame-src 'self'",
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",
@@ -22,6 +24,7 @@ export function developmentCsp(devOrigin: string): string {
     "img-src 'self' data:",
     "font-src 'self'",
     `connect-src 'self' ${ws}`,
+    "frame-src app://sendix",
     "base-uri 'none'",
     "form-action 'none'",
     "object-src 'none'",

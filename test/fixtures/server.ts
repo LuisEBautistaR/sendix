@@ -8,8 +8,16 @@ export interface TestServer {
   url: string;
   /** ws://… base of the same server. */
   wsUrl: string;
+  /** Every path the server was asked for, in order (to prove something was NOT fetched). */
+  hits: string[];
   close(): Promise<void>;
 }
+
+const XML_BODY = `<?xml version="1.0" encoding="UTF-8"?><catalogo><producto id="prd_1"><nombre>Café de Veracruz</nombre><precio>189</precio></producto><producto id="prd_2"><nombre>Té verde</nombre><precio>95</precio></producto></catalogo>`;
+
+/** Inline styles must show in the preview; the external image and the script must not run or load. */
+const htmlBody = (base: string) => `<!doctype html><html><head><title>Tienda</title><style>h1{color:rgb(140,85,20)}</style><script>document.title="script ejecutado"</script></head>
+<body><h1>Catálogo de prueba</h1><p>Dos productos disponibles.</p><img src="${base}/pixel.png" alt="pixel"><a href="${base}/json">Ver JSON</a></body></html>`;
 
 const json = (res: ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}) => {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...extra });
@@ -23,9 +31,23 @@ async function readBody(req: IncomingMessage): Promise<string> {
 }
 
 export function startTestServer(): Promise<TestServer> {
+  const hits: string[] = [];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
+    hits.push(path);
+    if (path === "/xml") {
+      res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8" });
+      return res.end(XML_BODY);
+    }
+    if (path === "/html") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      return res.end(htmlBody(`http://${req.headers.host}`));
+    }
+    if (path === "/big") {
+      const items = Array.from({ length: 25_000 }, (_, i) => ({ id: `item-${i}`, n: i }));
+      return json(res, 200, items);
+    }
     if (path === "/json") {
       return json(res, 200, { productos: [{ id: "prd_1", nombre: "Café de Veracruz", precio: 189 }], total: 1 }, { "Set-Cookie": "sid=abc123; Path=/; HttpOnly" });
     }
@@ -58,6 +80,7 @@ export function startTestServer(): Promise<TestServer> {
       resolve({
         url: `http://127.0.0.1:${port}`,
         wsUrl: `ws://127.0.0.1:${port}`,
+        hits,
         close: () =>
           new Promise((done) => {
             io.disconnectSockets(true);

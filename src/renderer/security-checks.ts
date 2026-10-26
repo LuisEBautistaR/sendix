@@ -29,8 +29,8 @@ export function runSecurityChecks(): SecurityCheck[] {
     {
       id: "bridge",
       label: "Puente mínimo",
-      detail: "solo window.sendix (motor, app, historial, carpeta de trabajo, ejecutor, tiempo real y gRPC); ipcRenderer no es accesible",
-      passed: bridgeKeys === "app,engine,grpc,history,realtime,runner,workspace" && typeof scope["ipcRenderer"] === "undefined",
+      detail: "solo window.sendix (motor, app, ajustes, historial, carpeta de trabajo, ejecutor, tiempo real y gRPC); ipcRenderer no es accesible",
+      passed: bridgeKeys === "app,engine,grpc,history,prefs,realtime,runner,workspace" && typeof scope["ipcRenderer"] === "undefined",
     },
     {
       id: "csp",

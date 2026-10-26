@@ -1,12 +1,13 @@
-import { Fragment, useMemo, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import type { TreeNode } from "@shared/collection";
 import { DataFileError, parseDataFile } from "@shared/data-file";
-import { MAX_ITERATIONS } from "@shared/runner";
+import { MAX_ITERATIONS, type RunOptions, type RunSummary } from "@shared/runner";
 import { resultFailed, useStore, type RunnerTab } from "../state/store";
 import { explainError, formatMs } from "../lib/format";
 import { Icon } from "../Icon";
 import { methodClass } from "./RequestPane";
 import { ConsoleList, ScriptErrors, testSummary } from "./ScriptResults";
+import { CodeViewer } from "./CodeViewer";
 
 const MAX_DATA_BYTES = 20 * 1024 * 1024;
 
@@ -33,12 +34,23 @@ function findNode(nodes: readonly TreeNode[], id: string): TreeNode | null {
 }
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(Number.isFinite(n) ? n : min)));
+const when = (epoch: number) => new Date(epoch).toLocaleString("es-MX", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+
+/** The tab's requests in the chosen order; new requests keep their place at the end, deleted ones vanish. */
+function ordered(requests: PlannedRequest[], order: string[] | null): PlannedRequest[] {
+  if (!order) return requests;
+  const byId = new Map(requests.map((r) => [r.id, r]));
+  const known = order.filter((id) => byId.has(id));
+  return [...known.map((id) => byId.get(id)!), ...requests.filter((r) => !known.includes(r.id))];
+}
 
 export function RunnerView({ tab }: { tab: RunnerTab }) {
-  const { patchRunner, startRun, stopRun, notify } = useStore.getState();
+  const { patchRunner, startRun, stopRun, notify, backToPlan } = useStore.getState();
   const collection = useStore((s) => s.workspace?.collections.find((c) => c.id === tab.collectionId));
   const folder = collection && tab.folderId ? findNode(collection.tree, tab.folderId) : null;
-  const requests = useMemo(() => (collection ? planned(folder ? (folder.children ?? []) : collection.tree) : []), [collection, folder]);
+  const all = useMemo(() => (collection ? planned(folder ? (folder.children ?? []) : collection.tree) : []), [collection, folder]);
+  const requests = useMemo(() => ordered(all, tab.order), [all, tab.order]);
+  const chosen = requests.filter((r) => !tab.excluded.includes(r.id));
   const fileInput = useRef<HTMLInputElement>(null);
   const busy = tab.status !== "idle";
 
@@ -53,7 +65,7 @@ export function RunnerView({ tab }: { tab: RunnerTab }) {
     }
   };
 
-  const total = tab.plan ? tab.plan.requests * tab.plan.iterations : requests.length * tab.iterations;
+  const total = tab.plan ? tab.plan.requests * tab.plan.iterations : chosen.length * tab.iterations;
   const done = tab.results.length;
   const tests = testSummary(tab.results.flatMap((r) => r.tests));
   const failedRequests = tab.results.filter(resultFailed).length;
@@ -71,8 +83,13 @@ export function RunnerView({ tab }: { tab: RunnerTab }) {
             {folder && <> / {folder.name}</>}
           </span>
           <span className="muted">
-            {requests.length} {requests.length === 1 ? "petición" : "peticiones"}
+            {chosen.length === all.length ? `${all.length} ${all.length === 1 ? "petición" : "peticiones"}` : `${chosen.length} de ${all.length} peticiones`}
           </span>
+          {hasRun && !busy && (
+            <button type="button" className="link-btn back" onClick={() => backToPlan(tab.id)} data-testid="runner-back">
+              Volver a la configuración
+            </button>
+          )}
         </div>
         <div className="runner-config">
           <label className="mini-field">
@@ -129,7 +146,7 @@ export function RunnerView({ tab }: { tab: RunnerTab }) {
                 {tab.status === "stopping" ? "Deteniendo…" : "Detener"}
               </button>
             ) : (
-              <button type="button" className="btn btn-primary" disabled={!requests.length} onClick={() => void startRun(tab.id)} data-testid="runner-start">
+              <button type="button" className="btn btn-primary" disabled={!chosen.length} onClick={() => void startRun(tab.id)} data-testid="runner-start">
                 {hasRun ? "Ejecutar de nuevo" : "Ejecutar"}
               </button>
             )}
@@ -142,6 +159,16 @@ export function RunnerView({ tab }: { tab: RunnerTab }) {
 
       {hasRun && (
         <div className="runner-summary" data-testid="runner-summary">
+          {tab.fromHistory && tab.startedAt && (
+            <p className="hint history-note" data-testid="runner-from-history">
+              Ejecución guardada del {when(tab.startedAt)}.
+              {tab.finish?.recordId && (
+                <button type="button" className="link-btn" onClick={() => void useStore.getState().exportRunRecord(tab.finish!.recordId!)}>
+                  Exportar JSON
+                </button>
+              )}
+            </p>
+          )}
           <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label="Progreso">
             <i style={{ width: `${total ? Math.min(100, (done / total) * 100) : 0}%` }} className={failedRequests ? "bad" : ""} />
           </div>
@@ -160,7 +187,17 @@ export function RunnerView({ tab }: { tab: RunnerTab }) {
               Tiempo medio <b>{formatMs(avg)}</b>
             </span>
             <span className="state" data-testid="runner-state">
-              {busy ? (tab.status === "stopping" ? "Deteniendo…" : "En curso…") : tab.finish?.error ? `Error: ${tab.finish.error}` : tab.finish?.stopped ? "Detenida" : "Terminada"}
+              {busy
+                ? tab.status === "stopping"
+                  ? "Deteniendo…"
+                  : "En curso…"
+                : tab.finish?.error
+                  ? `Error: ${tab.finish.error}`
+                  : tab.finish?.stoppedOnError
+                    ? "Detenida en el primer fallo"
+                    : tab.finish?.stopped
+                      ? "Detenida"
+                      : "Terminada"}
               {tab.finishedAt && tab.startedAt ? ` en ${formatMs(tab.finishedAt - tab.startedAt)}` : ""}
             </span>
             <span className="seg end" role="radiogroup" aria-label="Filtro de resultados">
@@ -172,6 +209,11 @@ export function RunnerView({ tab }: { tab: RunnerTab }) {
               </button>
             </span>
           </div>
+          {tab.finish?.persisted != null && (
+            <p className="hint" data-testid="runner-persisted">
+              {tab.finish.persisted === 0 ? "Los scripts no cambiaron variables: no se escribió nada." : `Se guardaron ${tab.finish.persisted} ${tab.finish.persisted === 1 ? "variable" : "variables"} en los archivos.`}
+            </p>
+          )}
         </div>
       )}
 
@@ -233,7 +275,7 @@ export function RunnerView({ tab }: { tab: RunnerTab }) {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="muted">
-                    {tab.onlyFailures ? "Ninguna petición ha fallado." : "Esperando la primera respuesta…"}
+                    {tab.onlyFailures ? "Ninguna petición ha fallado." : busy ? "Esperando la primera respuesta…" : "Esta ejecución no tiene resultados."}
                   </td>
                 </tr>
               )}
@@ -265,29 +307,136 @@ function RunDetail({ result }: { result: RunnerTab["results"][number] }) {
         </ul>
       )}
       {result.console.length > 0 && <ConsoleList entries={result.console} />}
-      {!result.tests.length && !result.console.length && !result.errors.length && result.status !== null && <p className="hint">Sin tests ni salida de consola.</p>}
+      {result.response && (
+        <div className="kept-response" data-testid="run-response">
+          <p className="kept-head">
+            Respuesta {result.response.truncated && <span className="muted">· primeros 256 KB</span>}
+            <span className="muted mono">{result.response.headers.length} cabeceras</span>
+          </p>
+          <div className="kept-body">
+            <CodeViewer text={prettyIfJson(result.response.body)} language={looksJson(result.response.body) ? "json" : "text"} wrap label="Cuerpo de la respuesta guardada" />
+          </div>
+        </div>
+      )}
+      {!result.tests.length && !result.console.length && !result.errors.length && !result.response && result.status !== null && <p className="hint">Sin tests ni salida de consola.</p>}
     </div>
   );
 }
 
+const looksJson = (text: string) => /^\s*[[{]/.test(text);
+function prettyIfJson(text: string): string {
+  if (!looksJson(text)) return text;
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+}
+
 function Plan({ requests, tab }: { requests: PlannedRequest[]; tab: RunnerTab }) {
+  const { patchRunner } = useStore.getState();
   if (!requests.length) return <p className="hint pad">No hay peticiones que ejecutar aquí.</p>;
   const preview = tab.data?.rows.slice(0, 5) ?? [];
+  const ids = requests.map((r) => r.id);
+  const move = (index: number, by: number) => {
+    const next = [...ids];
+    const [item] = next.splice(index, 1);
+    next.splice(index + by, 0, item!);
+    patchRunner(tab.id, { order: next });
+  };
+  const toggle = (id: string, on: boolean) => patchRunner(tab.id, { excluded: on ? tab.excluded.filter((e) => e !== id) : [...tab.excluded, id] });
+  const opt = (patch: Partial<RunOptions>) => patchRunner(tab.id, { options: { ...tab.options, ...patch } });
   return (
     <>
       <div className="section-label">
-        Orden de ejecución <span>cada iteración envía estas peticiones en este orden; lo que guardan los scripts pasa a la siguiente</span>
+        Orden de ejecución <span>cada iteración envía las peticiones marcadas en este orden; lo que guardan los scripts pasa a la siguiente</span>
+        <span className="plan-actions">
+          <button type="button" className="link-btn" disabled={!tab.excluded.length} onClick={() => patchRunner(tab.id, { excluded: [] })}>
+            Todas
+          </button>
+          <button type="button" className="link-btn" disabled={tab.excluded.length === ids.length} onClick={() => patchRunner(tab.id, { excluded: ids })}>
+            Ninguna
+          </button>
+          <button type="button" className="link-btn" disabled={!tab.order} onClick={() => patchRunner(tab.id, { order: null })} data-testid="runner-reset-order">
+            Orden de la colección
+          </button>
+        </span>
       </div>
       <ol className="plan" data-testid="runner-plan">
-        {requests.map((r, i) => (
-          <li key={r.id}>
-            <span className="mono muted">{i + 1}</span>
-            <span className={`meth ${methodClass(r.method)}`}>{r.method === "DELETE" ? "DEL" : r.method}</span>
-            <span>{r.name}</span>
-            {r.path.length > 0 && <span className="muted">{r.path.join(" / ")}</span>}
-          </li>
-        ))}
+        {requests.map((r, i) => {
+          const on = !tab.excluded.includes(r.id);
+          return (
+            <li key={r.id} className={on ? "" : "off"} data-testid="plan-row">
+              <input type="checkbox" className="check" checked={on} onChange={(e) => toggle(r.id, e.target.checked)} aria-label={`Incluir ${r.name}`} />
+              <span className="mono muted">{i + 1}</span>
+              <span className={`meth ${methodClass(r.method)}`}>{r.method === "DELETE" ? "DEL" : r.method}</span>
+              <span className="plan-name">{r.name}</span>
+              {r.path.length > 0 && <span className="muted">{r.path.join(" / ")}</span>}
+              <span className="plan-move">
+                <button type="button" className="icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Subir ${r.name}`} title="Subir">
+                  <Icon name="up" size={14} />
+                </button>
+                <button type="button" className="icon-btn" disabled={i === requests.length - 1} onClick={() => move(i, 1)} aria-label={`Bajar ${r.name}`} title="Bajar">
+                  <Icon name="down" size={14} />
+                </button>
+              </span>
+            </li>
+          );
+        })}
       </ol>
+
+      <div className="section-label">Opciones</div>
+      <div className="run-options">
+        <label className="switch">
+          <input type="checkbox" className="check" checked={tab.options.stopOnError} onChange={(e) => opt({ stopOnError: e.target.checked })} data-testid="opt-stop-on-error" />
+          <span>
+            Detener en el primer fallo
+            <small>Sin respuesta, un test que falla o un script con error.</small>
+          </span>
+        </label>
+        <label className="switch">
+          <input type="checkbox" className="check" checked={tab.options.persistVariables} onChange={(e) => opt({ persistVariables: e.target.checked })} data-testid="opt-persist" />
+          <span>
+            Guardar las variables al terminar
+            <small>Lo que guardan los scripts se escribe en el entorno activo y en la colección. Los secretos siguen cifrados.</small>
+          </span>
+        </label>
+        <label className="switch">
+          <input type="checkbox" className="check" checked={tab.options.keepResponses} onChange={(e) => opt({ keepResponses: e.target.checked })} data-testid="opt-keep-responses" />
+          <span>
+            Conservar las respuestas
+            <small>Cabeceras y cuerpo (hasta 256 KB) al expandir cada fila, mientras Sendix siga abierto. No se guardan en el historial.</small>
+          </span>
+        </label>
+        <label className="switch">
+          <input type="checkbox" className="check" checked={tab.options.logs} onChange={(e) => opt({ logs: e.target.checked })} />
+          <span>
+            Guardar la salida de consola
+            <small>Desactívalo en ejecuciones largas con muchos console.log.</small>
+          </span>
+        </label>
+        <div className="field cookies-field">
+          <span>Cookies</span>
+          <div className="seg" role="group" aria-label="Cookies">
+            <button type="button" aria-pressed={tab.options.cookies === "shared"} onClick={() => opt({ cookies: "shared", saveCookies: false })}>
+              Las de Sendix
+            </button>
+            <button type="button" aria-pressed={tab.options.cookies === "isolated"} onClick={() => opt({ cookies: "isolated" })} data-testid="opt-cookies-isolated">
+              Empezar sin cookies
+            </button>
+          </div>
+        </div>
+        {tab.options.cookies === "isolated" && (
+          <label className="switch">
+            <input type="checkbox" className="check" checked={tab.options.saveCookies} onChange={(e) => opt({ saveCookies: e.target.checked })} />
+            <span>
+              Añadir las cookies de la ejecución a las de Sendix al terminar
+              <small>Si no, las cookies que reciba la ejecución se olvidan al acabar.</small>
+            </span>
+          </label>
+        )}
+      </div>
+
       {tab.data && (
         <>
           <div className="section-label">
@@ -321,6 +470,70 @@ function Plan({ requests, tab }: { requests: PlannedRequest[]; tab: RunnerTab })
             {tab.data.rows.length > preview.length && <p className="hint pad">y {tab.data.rows.length - preview.length} filas más.</p>}
           </div>
         </>
+      )}
+
+      <RunHistory tab={tab} />
+    </>
+  );
+}
+
+const STATE_LABEL: Record<RunSummary["state"], string> = { finished: "Terminada", stopped: "Detenida", error: "Con error" };
+
+function RunHistory({ tab }: { tab: RunnerTab }) {
+  const { loadRunHistory, openRunRecord, repeatRun, exportRunRecord, deleteRunRecord } = useStore.getState();
+  useEffect(() => {
+    if (tab.history === null) void loadRunHistory(tab.id);
+  }, [tab.history, tab.id, loadRunHistory]);
+  const history = tab.history ?? [];
+  return (
+    <>
+      <div className="section-label">
+        Ejecuciones anteriores <span>las últimas de esta colección en este equipo, con sus resultados</span>
+      </div>
+      {history.length === 0 ? (
+        <p className="hint pad">Todavía no hay ejecuciones de esta colección.</p>
+      ) : (
+        <table className="kv readonly run-history" data-testid="run-history">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Alcance</th>
+              <th>Iter.</th>
+              <th>Tests</th>
+              <th>Con fallos</th>
+              <th>Duración</th>
+              <th>Estado</th>
+              <th aria-label="Acciones" />
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((h) => (
+              <tr key={h.id} data-testid="run-history-row">
+                <td className="mono">{when(h.startedAt)}</td>
+                <td>{h.folderName ?? "Colección completa"}</td>
+                <td className="mono">{h.iterations}</td>
+                <td className={`mono ${h.testsFailed ? "err" : h.testsPassed ? "ok" : "muted"}`}>{h.testsPassed + h.testsFailed ? `${h.testsPassed}/${h.testsPassed + h.testsFailed}` : "—"}</td>
+                <td className={`mono ${h.failed ? "err" : "muted"}`}>{h.failed}</td>
+                <td className="mono">{formatMs(h.finishedAt - h.startedAt)}</td>
+                <td>{STATE_LABEL[h.state]}</td>
+                <td className="row-actions">
+                  <button type="button" className="link-btn" onClick={() => void openRunRecord(tab.id, h.id)} data-testid="run-history-open">
+                    Ver
+                  </button>
+                  <button type="button" className="link-btn" onClick={() => void repeatRun(tab.id, h.id)} data-testid="run-history-repeat">
+                    Repetir
+                  </button>
+                  <button type="button" className="link-btn" onClick={() => void exportRunRecord(h.id)} data-testid="run-history-export">
+                    Exportar
+                  </button>
+                  <button type="button" className="link-btn danger" onClick={() => void deleteRunRecord(tab.id, h.id)} aria-label="Borrar esta ejecución del historial">
+                    Borrar
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </>
   );

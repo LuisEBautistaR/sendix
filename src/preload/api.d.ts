@@ -3,9 +3,10 @@ import type { MethodName, MethodParams, MethodResult } from "../shared/methods";
 import type { AppInfo, EngineStatus, HistoryEntry, UpdateState } from "../shared/ipc";
 import type { WorkspaceArgs, WorkspaceOp, WorkspaceResults } from "../shared/workspace-ops";
 import type { WorkspaceSnapshot } from "../shared/workspace";
-import type { RunConfig, RunEvent } from "../shared/runner";
+import type { RunConfig, RunEvent, RunRecord, RunSummary } from "../shared/runner";
 import type { RealtimeEvent } from "../shared/realtime";
 import type { GrpcEvent } from "../shared/grpc";
+import type { Prefs } from "../shared/prefs";
 
 /** What the preload exposes to the renderer as window.sendix. Nothing else crosses the bridge. */
 export interface SendixApi {
@@ -20,7 +21,23 @@ export interface SendixApi {
     checkUpdates(): Promise<UpdateState | null>;
     /** Restarts into the downloaded version; does nothing until one is ready. */
     installUpdate(): Promise<void>;
+    /** Hands an HTML body to main and returns the URL of its sandboxed preview, or null if refused. */
+    preview(html: string): Promise<string | null>;
     onUpdates(listener: (state: UpdateState) => void): () => void;
+  };
+  prefs: {
+    get(): Promise<Prefs | null>;
+    /** Saves the whole set; resolves to what was stored, or null if main rejected it. */
+    set(prefs: Prefs): Promise<Prefs | null>;
+    /** Opens the profile folder in the file explorer. */
+    revealProfile(): Promise<void>;
+    /** File dialog in main for network files; only paths picked this way can be saved in Settings. */
+    pickFile(kind: "ca" | "cert" | "key" | "pfx"): Promise<string | null>;
+    /** Stores (or with null, forgets) the proxy password ("proxy") or a certificate passphrase ("cert:<id>"), encrypted. */
+    setSecret(name: string, value: string | null): Promise<boolean>;
+    /** Which of those secrets are saved; their values never reach the page. */
+    secrets(): Promise<{ proxyPassword: boolean; certPassphrases: string[] } | null>;
+    onChanged(listener: (prefs: Prefs) => void): () => void;
   };
   history: {
     list(): Promise<HistoryEntry[] | null>;
@@ -36,6 +53,12 @@ export interface SendixApi {
   runner: {
     start(config: RunConfig): Promise<Outcome<{ runId: string }>>;
     stop(runId: string): Promise<boolean>;
+    /** Past runs of a collection, newest first. */
+    history(collectionId: string): Promise<RunSummary[] | null>;
+    record(id: number): Promise<RunRecord | null>;
+    deleteRecord(id: number): Promise<boolean>;
+    /** Asks where to save and writes the run as JSON. */
+    exportRecord(id: number): Promise<"saved" | "cancelled" | "missing">;
     onEvent(listener: (event: RunEvent) => void): () => void;
   };
   realtime: {
