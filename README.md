@@ -4,7 +4,9 @@
 
 Cliente de API de escritorio, local primero y compatible con colecciones Postman v2.1. Sistema visual en [docs/DESIGN.md](docs/DESIGN.md).
 
-Estado: **M6, instalador y actualizaciones**. Están completos todos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC).
+**¿Primera vez?** Empieza por la [guía rápida](docs/GUIA-RAPIDA.md) (también en [protohub.digital/sendix/guia](https://protohub.digital/sendix/guia/)). Cada función se explica en el [manual de uso](docs/MANUAL.md).
+
+Estado: **0.2.1**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC) y los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red).
 
 **Peticiones (M1)**
 - Editor de peticiones:
