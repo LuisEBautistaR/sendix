@@ -155,7 +155,13 @@ kbd { font: 500 11px var(--mono); }
 .url::selection { background: var(--select); color: transparent; }
 .url::placeholder { color: var(--faint); }
 
-.split { flex: 1; min-height: 0; display: grid; grid-template-columns: 46fr 54fr; }
+.split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, var(--split, 46%)) 1px minmax(0, 1fr); }
+.split-handle { position: relative; z-index: 2; background: var(--line); cursor: col-resize; touch-action: none; outline: none; }
+/* A 9 px grip around the 1 px line, easier to catch than the line itself. */
+.split-handle::before { content: ""; position: absolute; inset: 0 -4px; }
+.split-handle:hover, .split-handle:focus-visible, .split.resizing .split-handle { background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.split.resizing { cursor: col-resize; user-select: none; }
+.split.resizing iframe { pointer-events: none; }
 .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .pane + .pane { border-left: 1px solid var(--line); }
 .subtabs { display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 8px; border-bottom: 1px solid var(--line); flex: none; overflow-x: auto; scrollbar-width: none; }
@@ -219,6 +225,10 @@ textarea.editor {
   font: 400 12px/19px var(--mono); tab-size: 2; white-space: pre; color: var(--ink);
 }
 textarea.editor:focus { border-color: var(--focus); }
+.body-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.body-panel > .toolbar { flex: none; }
+.body-editor { flex: 1; min-height: 220px; margin: 0 12px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--field); overflow: hidden; }
+.body-editor:focus-within { border-color: var(--focus); }
 
 /* code */
 .codeview { min-height: 100%; }
@@ -634,3 +644,4 @@ textarea.small-editor:focus { border-color: var(--focus); }
 .cert-add input:focus { border-color: var(--focus); }
 .cert-files { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .state-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pane .toolbar { flex-wrap: wrap; row-gap: 6px; }

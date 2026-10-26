@@ -131,6 +131,10 @@ Estado: **M6, instalador y actualizaciones**. Están completos todos los hitos d
 
   «Heredar» toma el valor de la carpeta o la colección: el motor envuelve la petición con el `protocolProfileBehavior` de cada nivel.
 
+**0.2.1**
+- El cuerpo de la petición usa el editor de código: resalta JSON, XML, HTML y JavaScript, marca las `{{variables}}` y respeta la sangría de Ajustes.
+- El divisor entre la petición y la respuesta se arrastra (entre el 25 % y el 75 % del ancho). Se guarda en Ajustes, admite flechas del teclado y con doble clic vuelve al original.
+
 ## Requisitos
 
 - Node.js 22.12 o superior (probado con 24.22) y npm 11.

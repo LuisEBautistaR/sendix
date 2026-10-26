@@ -6,13 +6,15 @@
  */
 import { useEffect, useRef } from "react";
 import { EditorState, Compartment } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, placeholder as placeholderExt } from "@codemirror/view";
+import { Decoration, EditorView, MatchDecorator, ViewPlugin, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, placeholder as placeholderExt, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { bracketMatching, indentOnInput, indentUnit, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, type CompletionSource } from "@codemirror/autocomplete";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { javascript } from "@codemirror/lang-javascript";
 import { json } from "@codemirror/lang-json";
+import { xml } from "@codemirror/lang-xml";
+import { html } from "@codemirror/lang-html";
 import { tags as t } from "@lezer/highlight";
 import type { Prefs } from "@shared/prefs";
 import { useStore } from "../state/store";
@@ -62,7 +64,23 @@ export const theme = EditorView.theme({
   ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--select)" },
   ".cm-foldGutter .cm-gutterElement": { padding: "0 4px", color: "var(--faint)", cursor: "pointer" },
   ".cm-foldPlaceholder": { backgroundColor: "var(--var-bg)", border: "none", color: "var(--var-ink)", padding: "0 4px", margin: "0 2px" },
+  ".cm-var, .cm-var *": { backgroundColor: "var(--var-bg)", color: "var(--var-ink) !important", borderRadius: "3px" },
 });
+
+/** {{variables}} marked like in the URL field. */
+const variableMarks = new MatchDecorator({ regexp: /\{\{[^{}\s]+\}\}/g, decoration: Decoration.mark({ class: "cm-var" }) });
+const variables = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = variableMarks.createDeco(view);
+    }
+    update(u: ViewUpdate) {
+      this.decorations = variableMarks.updateDeco(u, this.decorations);
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
 
 /** Spanish labels for the search panel and folding. */
 export const cmPhrases = EditorState.phrases.of({
@@ -97,19 +115,34 @@ const editorPrefsExt = (p: Prefs["editor"]) => [
   ...(p.closeBrackets ? [closeBrackets(), keymap.of(closeBracketsKeymap)] : []),
 ];
 
-const languageExt = (language: Props["language"]) => (language === "json" ? json() : language === "javascript" ? javascript() : []);
+const languageExt = (language: Props["language"]) => {
+  switch (language) {
+    case "json":
+      return json();
+    case "javascript":
+      return javascript();
+    case "xml":
+      return xml();
+    case "html":
+      return html({ autoCloseTags: false });
+    default:
+      return [];
+  }
+};
 
 interface Props {
   value: string;
   onChange(value: string): void;
-  language: "javascript" | "json" | "text";
+  language: "javascript" | "json" | "xml" | "html" | "text";
   completions?: CompletionSource;
   placeholder?: string;
   label: string;
   testId?: string;
+  /** Mark {{variables}} (request bodies). */
+  markVariables?: boolean;
 }
 
-export function CodeEditor({ value, onChange, language, completions, placeholder, label, testId }: Props) {
+export function CodeEditor({ value, onChange, language, completions, placeholder, label, testId, markVariables = false }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
@@ -139,6 +172,7 @@ export function CodeEditor({ value, onChange, language, completions, placeholder
         // Ctrl+Enter belongs to the app (send or connect), not to "insert blank line".
         keymap.of([...defaultKeymap.filter((k) => k.key !== "Mod-Enter"), ...searchKeymap, ...historyKeymap, ...completionKeymap, indentWithTab]),
         ...(placeholder ? [placeholderExt(placeholder)] : []),
+        ...(markVariables ? [variables] : []),
         EditorView.contentAttributes.of({ "aria-label": label, ...(testId ? { "data-testid": testId } : {}) }),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChangeRef.current(u.state.doc.toString());

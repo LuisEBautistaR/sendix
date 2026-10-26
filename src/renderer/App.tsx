@@ -14,6 +14,7 @@ import { RunnerView } from "./components/RunnerView";
 import { RealtimeEditor, RealtimeLine, RealtimeLog } from "./components/RealtimePane";
 import { GrpcEditor, GrpcLine, GrpcResponse } from "./components/GrpcPane";
 import { SettingsView } from "./components/SettingsView";
+import { Split } from "./components/Split";
 
 const RAIL: Array<{ view: SidebarView; icon: IconName; label: string }> = [
   { view: "collections", icon: "folder", label: "Colecciones" },
@@ -158,10 +159,7 @@ export function App() {
               </div>
             )}
             <RequestLine tab={activeTab} />
-            <div className="split">
-              <RequestEditor tab={activeTab} />
-              <ResponsePane tab={activeTab} />
-            </div>
+            <Split left={<RequestEditor tab={activeTab} />} right={<ResponsePane tab={activeTab} />} />
           </section>
         )}
         {activeTab?.kind === "environment" && <EnvironmentEditor key={activeTab.id} tab={activeTab} />}
@@ -181,10 +179,7 @@ export function App() {
               </div>
             )}
             <GrpcLine tab={activeTab} />
-            <div className="split">
-              <GrpcEditor tab={activeTab} />
-              <GrpcResponse tab={activeTab} />
-            </div>
+            <Split left={<GrpcEditor tab={activeTab} />} right={<GrpcResponse tab={activeTab} />} />
           </section>
         )}
         {activeTab?.kind === "realtime" && (
@@ -200,10 +195,7 @@ export function App() {
               </div>
             )}
             <RealtimeLine tab={activeTab} />
-            <div className="split">
-              <RealtimeEditor tab={activeTab} />
-              <RealtimeLog tab={activeTab} />
-            </div>
+            <Split left={<RealtimeEditor tab={activeTab} />} right={<RealtimeLog tab={activeTab} />} />
           </section>
         )}
       </main>

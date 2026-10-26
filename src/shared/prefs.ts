@@ -37,6 +37,11 @@ export const networkSchema = z.object({
 });
 export type NetworkPrefs = z.infer<typeof networkSchema>;
 
+/** Share of the screen width for the request side, in percent. */
+export const SPLIT_MIN = 25;
+export const SPLIT_MAX = 75;
+export const SPLIT_DEFAULT = 46;
+
 export const prefsSchema = z.object({
   /** system follows Windows; light and dark pin the whole app, native title bar included. */
   theme: z.enum(THEMES),
@@ -57,6 +62,9 @@ export const prefsSchema = z.object({
     sendNoCache: z.boolean(),
   }),
   network: networkSchema,
+  ui: z.object({
+    splitPercent: z.number().int().min(SPLIT_MIN).max(SPLIT_MAX),
+  }),
 });
 export type Prefs = z.infer<typeof prefsSchema>;
 
@@ -65,6 +73,7 @@ export const DEFAULT_PREFS: Prefs = {
   editor: { fontSize: 12, tabSize: 2, closeBrackets: true },
   request: { timeoutMs: 30_000, verifyTls: true, followRedirects: true, maxResponseMb: 50, sendNoCache: false },
   network: { proxy: { mode: "none", server: "", username: "", bypass: "localhost, 127.0.0.1" }, caFile: null, clientCerts: [] },
+  ui: { splitPercent: SPLIT_DEFAULT },
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -75,7 +84,7 @@ export function readPrefs(raw: unknown): Prefs {
   if (!isRecord(raw)) return out;
   const theme = prefsSchema.shape.theme.safeParse(raw["theme"]);
   if (theme.success) out.theme = theme.data;
-  for (const group of ["editor", "request"] as const) {
+  for (const group of ["editor", "request", "ui"] as const) {
     const stored = raw[group];
     if (!isRecord(stored)) continue;
     const shape = prefsSchema.shape[group].shape as Record<string, z.ZodType>;

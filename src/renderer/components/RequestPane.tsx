@@ -272,7 +272,7 @@ function BodyPanel({ tab }: { tab: RequestTab }) {
     else setBody({ mode, fields: body.mode === "urlencoded" || body.mode === "formdata" ? body.fields : [] });
   };
   return (
-    <>
+    <div className="body-panel">
       <div className="toolbar">
         <span className="seg" role="radiogroup" aria-label="Tipo de cuerpo">
           {(Object.keys(MODE_LABEL) as Array<keyof typeof MODE_LABEL>).map((m) => (
@@ -315,24 +315,17 @@ function BodyPanel({ tab }: { tab: RequestTab }) {
         </p>
       )}
       {body.mode === "raw" && (
-        <textarea
-          className="editor mono"
-          value={body.raw}
-          spellCheck={false}
-          aria-label="Cuerpo de la petición"
-          data-testid="body-raw"
-          placeholder={body.language === "json" ? '{\n  "nombre": "valor"\n}' : ""}
-          onChange={(e) => setBody({ ...body, raw: e.target.value })}
-          onKeyDown={(e) => {
-            if (e.key !== "Tab") return;
-            e.preventDefault();
-            const el = e.currentTarget;
-            const { selectionStart: s, selectionEnd: end } = el;
-            const raw = `${body.raw.slice(0, s)}  ${body.raw.slice(end)}`;
-            setBody({ ...body, raw });
-            requestAnimationFrame(() => el.setSelectionRange(s + 2, s + 2));
-          }}
-        />
+        <div className="body-editor">
+          <CodeEditor
+            value={body.raw}
+            onChange={(raw) => setBody({ ...body, raw })}
+            language={body.language}
+            label="Cuerpo de la petición"
+            testId="body-raw"
+            markVariables
+            placeholder={body.language === "json" ? '{ "nombre": "valor" }' : ""}
+          />
+        </div>
       )}
       {(body.mode === "urlencoded" || body.mode === "formdata") && (
         <>
@@ -340,7 +333,7 @@ function BodyPanel({ tab }: { tab: RequestTab }) {
           {body.mode === "formdata" && <p className="hint pad">Por ahora, form-data envía solo campos de texto; los archivos llegarán con los espacios de trabajo.</p>}
         </>
       )}
-    </>
+    </div>
   );
 }
 
