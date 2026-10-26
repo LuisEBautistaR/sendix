@@ -187,6 +187,18 @@ function CollectionRow({ collection, collapsed, toggle, renaming, setRenaming, o
             <span className="name strong">{collection.name}</span>
           )}
         </button>
+        {(collection.scripts || collection.variables > 0) && (
+          <button
+            type="button"
+            className="icon-btn row-flag"
+            title={`${[collection.scripts && "Tiene scripts", collection.variables > 0 && `${collection.variables} ${collection.variables === 1 ? "variable" : "variables"}`].filter(Boolean).join(" y ")}: ver la colección`}
+            aria-label={`Scripts y variables de ${collection.name}`}
+            onClick={() => useStore.getState().openFolder(collection.id, null, collection.scripts ? "scripts" : "variables")}
+            data-testid="collection-flag"
+          >
+            <Icon name="code" size={14} />
+          </button>
+        )}
         <button type="button" className="icon-btn row-menu" title="Más acciones" aria-label={`Acciones de ${collection.name}`} onClick={(e) => openMenu(null, e.currentTarget)}>
           <Icon name="more" size={14} />
         </button>
@@ -239,6 +251,18 @@ function Nodes({ nodes, depth, collectionId, collapsed, toggle, renaming, setRen
                   <span className="name">{node.name}</span>
                 )}
               </button>
+              {node.scripts && (
+                <button
+                  type="button"
+                  className="icon-btn row-flag"
+                  title="Tiene scripts: ver la carpeta"
+                  aria-label={`Scripts de ${node.name}`}
+                  onClick={() => useStore.getState().openFolder(collectionId, node.id, "scripts")}
+                  data-testid="folder-flag"
+                >
+                  <Icon name="code" size={14} />
+                </button>
+              )}
               <button type="button" className="icon-btn row-menu" title="Más acciones" aria-label={`Acciones de ${node.name}`} onClick={(e) => openMenu(node, e.currentTarget)}>
                 <Icon name="more" size={14} />
               </button>
@@ -369,6 +393,9 @@ function ItemMenu({ target, close, startRename }: { target: MenuTarget; close():
           ["Nueva petición", addRequest],
           ["Nueva carpeta", addFolder],
         ] as Array<[string, () => void]>)
+      : []),
+    ...(node === null || node.kind === "folder"
+      ? ([["Scripts y variables", () => (close(), useStore.getState().openFolder(collectionId, node ? node.id : null))]] as Array<[string, () => void]>)
       : []),
     ...(node === null || node.kind === "folder"
       ? ([["Ejecutar…", () => (close(), useStore.getState().openRunner(collectionId, node ? node.id : null))]] as Array<[string, () => void]>)

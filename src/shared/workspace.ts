@@ -1,6 +1,6 @@
 /** What the renderer sees of a workspace folder. Files stay in main; the UI gets views. */
-import type { TreeNode } from "./collection";
-import type { HttpRequest, KeyValue } from "./http";
+import type { FolderVariable, ScriptLevel, TreeNode } from "./collection";
+import type { HttpRequest, KeyValue, RequestAuth, RequestScripts } from "./http";
 import type { RealtimeRequest } from "./realtime";
 import type { GrpcRequest } from "./grpc";
 
@@ -10,6 +10,10 @@ export interface CollectionSummary {
   /** File name inside collections/ (shown so users can find it in git). */
   file: string;
   tree: TreeNode[];
+  /** Whether the collection itself has a pre-request or test script. */
+  scripts: boolean;
+  /** How many variables the collection defines. */
+  variables: number;
 }
 
 export interface EnvironmentSummary {
@@ -42,6 +46,23 @@ export interface ItemView {
   realtime: RealtimeRequest | null;
   /** Set for gRPC calls. */
   grpc: GrpcRequest | null;
+}
+
+/** A collection (folderId null) or folder, as its settings tab shows it. */
+export interface FolderView {
+  collectionId: string;
+  folderId: string | null;
+  name: string;
+  /** Folder names from the collection down to the folder's parent. */
+  path: string[];
+  description: string;
+  scripts: RequestScripts;
+  auth: RequestAuth;
+  variables: FolderVariable[];
+  /** The levels above with scripts, in running order. */
+  inherited: ScriptLevel[];
+  /** Requests inside, at any depth. */
+  requests: number;
 }
 
 export interface EnvironmentRow {

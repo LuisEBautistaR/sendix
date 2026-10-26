@@ -6,7 +6,7 @@ Cliente de API de escritorio, local primero y compatible con colecciones Postman
 
 **¿Primera vez?** Empieza por la [guía rápida](docs/GUIA-RAPIDA.md) (también en [protohub.digital/sendix/guia](https://protohub.digital/sendix/guia/)). Cada función se explica en el [manual de uso](docs/MANUAL.md).
 
-Estado: **0.4.0**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC), los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red), la integración con Mockix y «Copiar como cURL».
+Estado: **0.5.0**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC), los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red), la integración con Mockix, «Copiar como cURL» y la pestaña de scripts y variables de colecciones y carpetas.
 
 **Peticiones (M1)**
 - Editor de peticiones:
@@ -30,7 +30,8 @@ Estado: **0.4.0**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.
   - `{{variables}}` de entorno y de colección; las del entorno tienen prioridad, como en Postman;
   - se resaltan en la URL (en rojo si no tienen valor);
   - se resuelven en la vista previa;
-  - la autorización y las variables se heredan de la colección y de cada carpeta.
+  - la autorización se hereda de la colección y de cada carpeta, y las variables de la colección valen en todas sus peticiones;
+  - **Scripts y variables** (menú de una colección o carpeta, o el icono `</>` de su fila) abre una pestaña con su resumen, su autorización, sus scripts y, en la colección, sus variables, con buscador y las de tipo secreto ocultas. Las variables que un archivo ponga en una carpeta se muestran pero no se usan, como en Postman.
 - **Secretos:** las variables secretas se cifran con el sistema operativo (`safeStorage`, DPAPI en Windows) en el perfil del usuario y **nunca se escriben en la carpeta**. La interfaz no recibe nunca su valor; el proceso principal lo añade solo al enviar.
 - **Importar:**
   - colecciones de Postman v2.0/v2.1 y entornos;

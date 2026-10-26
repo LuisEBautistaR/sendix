@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { DEFAULT_SETTINGS, type HttpOutcome, type HttpRequest, type KeyValue, type RequestSource } from "@shared/http";
 import type { RpcError } from "@shared/rpc";
-import type { VariableView, WorkspaceSnapshot } from "@shared/workspace";
-import type { TreeNode } from "@shared/collection";
+import type { FolderView, VariableView, WorkspaceSnapshot } from "@shared/workspace";
+import type { FolderSettings, TreeNode } from "@shared/collection";
 import type { WorkspaceArgs, WorkspaceOp, WorkspaceResults } from "@shared/workspace-ops";
 import { DEFAULT_RUN_OPTIONS, resultFailed, type RunEvent, type RunItemResult, type RunOptions, type RunSummary } from "@shared/runner";
 import { emptyGrpc, type CallType, type GrpcEvent, type GrpcRequest, type GrpcServiceInfo } from "@shared/grpc";
@@ -67,6 +67,25 @@ export interface EnvironmentTab {
   kind: "environment";
   environmentId: string;
 }
+
+export type FolderPanel = "scripts" | "variables" | "auth" | "overview";
+
+/** Scripts, auth and variables of a collection (folderId null) or a folder. */
+export interface FolderTab {
+  id: string;
+  kind: "folder";
+  collectionId: string;
+  folderId: string | null;
+  /** As saved on disk; null until loaded. */
+  view: FolderView | null;
+  /** What the user is editing; null until loaded. */
+  draft: FolderSettings | null;
+  panel: FolderPanel;
+  scriptPhase: ScriptPhase;
+}
+
+const folderSettingsOf = (view: FolderView): FolderSettings => ({ scripts: view.scripts, auth: view.auth, variables: view.variables });
+export const isFolderDirty = (tab: FolderTab): boolean => Boolean(tab.view && tab.draft && JSON.stringify(tab.draft) !== JSON.stringify(folderSettingsOf(tab.view)));
 
 export interface RunnerTab {
   id: string;
@@ -181,7 +200,7 @@ export interface GrpcTab {
   selected: number | null;
 }
 
-export type Tab = RequestTab | SystemTab | SettingsTab | EnvironmentTab | RunnerTab | RealtimeTab | GrpcTab;
+export type Tab = RequestTab | SystemTab | SettingsTab | EnvironmentTab | FolderTab | RunnerTab | RealtimeTab | GrpcTab;
 export type EditableTab = RequestTab | RealtimeTab | GrpcTab;
 const MAX_LOG = 5_000;
 
@@ -210,6 +229,25 @@ export function runnableIds(workspace: WorkspaceSnapshot | null, tab: Pick<Runne
   const ids = (nodes: readonly TreeNode[]): string[] => nodes.flatMap((n) => (n.kind === "request" ? [n.id] : ids(n.children ?? [])));
   const root = tab.folderId ? walk(collection.tree) : null;
   return ids(root ? (root.children ?? []) : collection.tree);
+}
+
+/** The collection and the folders above `itemId` that have scripts, outermost first (the order they run in). */
+export function scriptedLevels(workspace: WorkspaceSnapshot | null, collectionId: string, itemId: string | null): Array<{ folderId: string | null; name: string }> {
+  const collection = workspace?.collections.find((c) => c.id === collectionId);
+  if (!collection) return [];
+  const pathTo = (nodes: readonly TreeNode[], trail: TreeNode[]): TreeNode[] | null => {
+    for (const n of nodes) {
+      if (n.id === itemId) return trail;
+      const found = pathTo(n.children ?? [], [...trail, n]);
+      if (found) return found;
+    }
+    return null;
+  };
+  const folders = itemId === null ? [] : (pathTo(collection.tree, []) ?? []);
+  return [
+    ...(collection.scripts ? [{ folderId: null, name: collection.name }] : []),
+    ...folders.filter((f) => f.scripts).map((f) => ({ folderId: f.id, name: f.name })),
+  ];
 }
 
 /** Last preferences heard from main; new requests take their timeout from here. */
@@ -346,6 +384,11 @@ interface State {
   newRequest(draft?: HttpRequest, extra?: Partial<RequestTab>): void;
   openItem(source: RequestSource): Promise<void>;
   openEnvironment(environmentId: string): void;
+  openFolder(collectionId: string, folderId: string | null, panel?: FolderPanel): void;
+  /** Loads the folder tab from disk, dropping unsaved edits. */
+  loadFolder(id: string): Promise<void>;
+  patchFolder(id: string, patch: Partial<Pick<FolderTab, "draft" | "panel" | "scriptPhase">>): void;
+  saveFolder(id: string): Promise<void>;
   openSystem(): void;
   openSettings(): void;
   /** Applies preferences main announced (startup or after a change). */
@@ -485,6 +528,43 @@ export const useStore = create<State>((set, get) => {
       if (existing) return set({ activeId: existing.id });
       const tab: EnvironmentTab = { id: `tab-${++tabSeq}`, kind: "environment", environmentId };
       set((s) => ({ tabs: [...s.tabs, tab], activeId: tab.id }));
+    },
+
+    openFolder: (collectionId, folderId, panel) => {
+      const existing = get().tabs.find((t): t is FolderTab => t.kind === "folder" && t.collectionId === collectionId && t.folderId === folderId);
+      if (existing) {
+        if (panel) get().patchFolder(existing.id, { panel });
+        return set({ activeId: existing.id });
+      }
+      const tab: FolderTab = { id: `tab-${++tabSeq}`, kind: "folder", collectionId, folderId, view: null, draft: null, panel: panel ?? "overview", scriptPhase: "prerequest" };
+      set((s) => ({ tabs: [...s.tabs, tab], activeId: tab.id }));
+      void get().loadFolder(tab.id);
+    },
+
+    loadFolder: async (id) => {
+      const tab = get().tabs.find((t): t is FolderTab => t.id === id && t.kind === "folder");
+      if (!tab) return;
+      try {
+        const view = await ws("getFolder", { collectionId: tab.collectionId, folderId: tab.folderId });
+        set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === "folder" ? { ...t, view, draft: folderSettingsOf(view) } : t)) }));
+      } catch (err) {
+        get().notify("err", (err as Error).message);
+      }
+    },
+
+    patchFolder: (id, patch) => set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === "folder" ? { ...t, ...patch } : t)) })),
+
+    saveFolder: async (id) => {
+      const tab = get().tabs.find((t): t is FolderTab => t.id === id && t.kind === "folder");
+      if (!tab?.draft || !isFolderDirty(tab)) return;
+      try {
+        await ws("saveFolder", { collectionId: tab.collectionId, folderId: tab.folderId, ...tab.draft });
+        await get().loadFolder(id);
+        get().notify("ok", tab.folderId === null ? "Colección guardada." : "Carpeta guardada.");
+        void get().refreshVariables();
+      } catch (err) {
+        get().notify("err", (err as Error).message);
+      }
     },
 
     openSettings: () => {
@@ -672,6 +752,7 @@ export const useStore = create<State>((set, get) => {
         if (isDirty(closing) && !window.confirm(`«${closing.name}» tiene cambios sin guardar. ¿Cerrar de todos modos?`)) return;
         if (closing.state !== "idle") void get().disconnect(id);
       }
+      if (closing?.kind === "folder" && isFolderDirty(closing) && !window.confirm(`«${closing.view?.name ?? "Carpeta"}» tiene cambios sin guardar. ¿Cerrar de todos modos?`)) return;
       if (closing?.kind === "runner" && closing.status !== "idle") {
         if (!window.confirm("La ejecución sigue en curso. ¿Detenerla y cerrar?")) return;
         void get().stopRun(id);
@@ -699,9 +780,12 @@ export const useStore = create<State>((set, get) => {
       set((s) => {
         const known = new Set(snapshot?.collections.map((c) => c.id) ?? []);
         const envs = new Set(snapshot?.environments.map((e) => e.id) ?? []);
+        const folderIds = (nodes: readonly TreeNode[]): string[] => nodes.flatMap((n) => (n.kind === "folder" ? [n.id, ...folderIds(n.children ?? [])] : []));
+        const folders = new Set(snapshot?.collections.flatMap((c) => folderIds(c.tree)) ?? []);
         // Tabs whose request or environment disappeared become scratch tabs or close.
         const tabs = s.tabs
           .filter((t) => t.kind !== "environment" || envs.has(t.environmentId))
+          .filter((t) => t.kind !== "folder" || (known.has(t.collectionId) && (t.folderId === null || folders.has(t.folderId))))
           .filter((t) => t.kind !== "runner" || known.has(t.collectionId) || t.status !== "idle")
           .map((t) =>
             (t.kind === "request" || t.kind === "realtime" || t.kind === "grpc") && t.source && !known.has(t.source.collectionId) ? { ...t, source: null, name: null, path: [], saved: null } : t,

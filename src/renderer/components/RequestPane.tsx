@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
-import { EMPTY_SCRIPTS, RAW_LANGUAGES, type AuthType, type BodyMode, type RawLanguage, type RequestAuth, type RequestBody } from "@shared/http";
-import { isDirty, useStore, type RequestPanel, type RequestTab, type ScriptPhase } from "../state/store";
+import { EMPTY_SCRIPTS, RAW_LANGUAGES, type AuthType, type BodyMode, type RawLanguage, type RequestAuth, type RequestBody, type RequestScripts } from "@shared/http";
+import { isDirty, scriptedLevels, useStore, type RequestPanel, type RequestTab, type ScriptPhase } from "../state/store";
 import { CodeEditor, insertIntoEditor } from "./CodeEditor";
 import { SNIPPETS, pmCompletions } from "../lib/pm-completions";
 import { Icon } from "../Icon";
@@ -190,8 +190,12 @@ const AUTH_LABEL: Record<Exclude<AuthType, "preserved">, string> = {
 
 function AuthPanel({ tab }: { tab: RequestTab }) {
   const setDraft = useStore.getState().setDraft;
-  const auth = tab.draft.auth;
-  const setAuth = (next: RequestAuth) => setDraft(tab.id, (d) => ({ ...d, auth: next }));
+  return <AuthFields auth={tab.draft.auth} onChange={(next) => setDraft(tab.id, (d) => ({ ...d, auth: next }))} level={tab.source ? "request" : "scratch"} />;
+}
+
+/** Auth editor for requests, folders and collections. Unsaved requests and collections have nothing to inherit from. */
+export function AuthFields({ auth, onChange: setAuth, level }: { auth: RequestAuth; onChange(next: RequestAuth): void; level: "request" | "scratch" | "folder" | "collection" }) {
+  const inner = level === "folder" || level === "collection";
   const changeType = (type: AuthType) => {
     if (type === "none" || type === "inherit") setAuth({ type });
     else if (type === "preserved") return;
@@ -205,7 +209,7 @@ function AuthPanel({ tab }: { tab: RequestTab }) {
         <span>Tipo</span>
         <select value={auth.type} onChange={(e) => changeType(e.target.value as AuthType)} data-testid="auth-type">
           {(Object.keys(AUTH_LABEL) as Array<keyof typeof AUTH_LABEL>)
-            .filter((t) => t !== "inherit" || tab.source)
+            .filter((t) => t !== "inherit" || level === "request" || level === "folder")
             .map((t) => (
               <option key={t} value={t}>
                 {AUTH_LABEL[t]}
@@ -260,10 +264,16 @@ function AuthPanel({ tab }: { tab: RequestTab }) {
       )}
       <p className="hint">
         {auth.type === "none"
-          ? "La petición se envía sin credenciales."
+          ? inner
+            ? "Las peticiones de dentro que heredan la autorización se envían sin credenciales."
+            : "La petición se envía sin credenciales."
           : auth.type === "inherit"
-            ? "Usa la autorización de la carpeta o, si no tiene, la de la colección."
-            : "Los valores se envían solo al ejecutar la petición; el historial nunca guarda tokens ni contraseñas."}
+            ? inner
+              ? "Usa la autorización de la carpeta superior o, si no tiene, la de la colección."
+              : "Usa la autorización de la carpeta o, si no tiene, la de la colección."
+            : inner
+              ? "La usan las peticiones de dentro que tienen «Heredar». El historial nunca guarda tokens ni contraseñas."
+              : "Los valores se envían solo al ejecutar la petición; el historial nunca guarda tokens ni contraseñas."}
       </p>
     </div>
   );
@@ -355,22 +365,46 @@ const PHASES: Array<{ id: ScriptPhase; label: string; hint: string }> = [
 
 function ScriptsPanel({ tab }: { tab: RequestTab }) {
   const { setDraft, patch } = useStore.getState();
+  const workspace = useStore((s) => s.workspace);
+  const source = tab.source;
+  return (
+    <ScriptsEditor
+      scripts={tab.draft.scripts ?? EMPTY_SCRIPTS}
+      onChange={(phase, code) => setDraft(tab.id, (d) => ({ ...d, scripts: { ...(d.scripts ?? EMPTY_SCRIPTS), [phase]: code } }))}
+      phase={tab.scriptPhase}
+      onPhase={(scriptPhase) => patch(tab.id, { scriptPhase })}
+      collectionId={source?.collectionId ?? null}
+      levels={source ? scriptedLevels(workspace, source.collectionId, source.itemId) : []}
+    />
+  );
+}
+
+interface ScriptsEditorProps {
+  scripts: RequestScripts;
+  onChange(phase: ScriptPhase, code: string): void;
+  phase: ScriptPhase;
+  onPhase(phase: ScriptPhase): void;
+  collectionId: string | null;
+  /** Collection and folders above whose scripts run first, outermost first. */
+  levels: Array<{ folderId: string | null; name: string }>;
+}
+
+/** Pre-request and post-response scripts of a request, folder or collection. */
+export function ScriptsEditor({ scripts, onChange, phase, onPhase, collectionId, levels }: ScriptsEditorProps) {
   const variables = useStore((s) => s.variables);
   const keysRef = useRef<string[]>([]);
   keysRef.current = variables.map((v) => v.key);
   const completions = useMemo(() => pmCompletions(() => keysRef.current), []);
   const editorBox = useRef<HTMLDivElement>(null);
-  const scripts = tab.draft.scripts ?? EMPTY_SCRIPTS;
-  const phase = tab.scriptPhase;
   const current = PHASES.find((p) => p.id === phase)!;
-  const setScript = (code: string) => setDraft(tab.id, (d) => ({ ...d, scripts: { ...(d.scripts ?? EMPTY_SCRIPTS), [phase]: code } }));
+  const setScript = (code: string) => onChange(phase, code);
 
   return (
     <div className="scripts">
       <div className="toolbar">
         <span className="seg" role="radiogroup" aria-label="Momento del script">
           {PHASES.map((p) => (
-            <button key={p.id} type="button" role="radio" aria-checked={phase === p.id} aria-pressed={phase === p.id} onClick={() => patch(tab.id, { scriptPhase: p.id })} data-testid={`script-phase-${p.id}`}>
+            <button key={p.id} type="button" role="radio" aria-checked={phase === p.id} aria-pressed={phase === p.id} onClick={() => onPhase(p.id)} data-testid={`script-phase-${p.id}`}>
               {p.label}
               {scripts[p.id].trim() ? <span className="dot-on" aria-label="con código" /> : null}
             </button>
@@ -378,6 +412,20 @@ function ScriptsPanel({ tab }: { tab: RequestTab }) {
         </span>
         <span className="hint" title={current.hint}>{current.hint}</span>
       </div>
+      {collectionId && levels.length > 0 && (
+        <p className="inherited-scripts" data-testid="inherited-scripts">
+          <span>Antes de estos se ejecutan los scripts de</span>
+          {levels.map((l, i) => (
+            <span key={l.folderId ?? "collection"} className="inherited-level">
+              {i > 0 && <span aria-hidden="true">→</span>}
+              <button type="button" className="link-btn" onClick={() => useStore.getState().openFolder(collectionId, l.folderId)}>
+                <Icon name={l.folderId === null ? "box" : "folder"} size={13} />
+                {l.name}
+              </button>
+            </span>
+          ))}
+        </p>
+      )}
       <div className="scripts-body">
         <div className="scripts-editor" ref={editorBox}>
           <CodeEditor

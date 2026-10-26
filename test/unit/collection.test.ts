@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  applyFolderSettings,
   applyRequest,
   authChainFor,
   buildUrlObject,
@@ -9,7 +10,9 @@ import {
   duplicateItem,
   ensureIds,
   eventChainFor,
+  findFolder,
   findItem,
+  folderSettings,
   insertItem,
   grpcFromItem,
   grpcPaths,
@@ -23,6 +26,7 @@ import {
   applyRealtime,
   removeItem,
   renameItem,
+  scriptLevels,
   scriptsFromEvents,
   scriptsToEvents,
   tree,
@@ -253,5 +257,99 @@ describe("collection model", () => {
     expect(tree({ item: [item] })[0]).toMatchObject({ method: "GRPC" });
     expect(isRealtimeItem(item)).toBe(false);
     expect(grpcPaths({ item: [{ name: "f", item: [item] }] })).toEqual(["C:/protos/tienda.proto", "C:/protos", "C:/certs/ca.pem"]);
+  });
+});
+
+describe("collection and folder settings", () => {
+  /** Shaped like real exports: disabled rows used as section titles, a secret, a number value. */
+  const sample = (): Json => ({
+    info: { _postman_id: "c1", name: "Renovaciones demo", schema: "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+    event: [{ listen: "prerequest", script: { type: "text/javascript", exec: ["pm.variables.set('ts', Date.now());"] } }],
+    variable: [
+      { key: "------ LLAVES ------", value: "------ LLAVES ------", disabled: true },
+      { id: "v1", key: "llavePublica", value: "MIIB-de-prueba", type: "default" },
+      { key: "claveApi", value: "k-123", type: "secret" },
+      { key: "reintentos", value: 3, description: "Veces que se repite" },
+    ],
+    item: [
+      {
+        id: "f1",
+        name: "Pedidos",
+        auth: { type: "bearer", bearer: [{ key: "token", value: "{{token}}", type: "string" }] },
+        event: [{ listen: "test", script: { exec: ["pm.test('ok', () => {});"] } }],
+        item: [{ id: "f2", name: "Internos", item: [{ id: "r1", name: "Listar", request: { method: "GET", url: "https://a.test" } }] }],
+      },
+    ],
+  });
+
+  it("reads scripts, auth and variables of the collection and of a folder", () => {
+    const c = sample();
+    const root = folderSettings(c);
+    expect(root.scripts.prerequest).toContain("pm.variables.set");
+    expect(root.auth).toEqual({ type: "none" });
+    expect(root.variables).toEqual([
+      { key: "------ LLAVES ------", value: "------ LLAVES ------", enabled: false, secret: false },
+      { key: "llavePublica", value: "MIIB-de-prueba", enabled: true, secret: false },
+      { key: "claveApi", value: "k-123", enabled: true, secret: true },
+      { key: "reintentos", value: "3", enabled: true, secret: false, description: "Veces que se repite" },
+    ]);
+    const folder = folderSettings(findFolder(c, "f1")!);
+    expect(folder.auth).toEqual({ type: "bearer", token: "{{token}}" });
+    expect(folder.scripts.test).toContain("pm.test");
+    expect(findFolder(c, "r1")).toBeNull();
+    expect(tree(c)[0]).toMatchObject({ kind: "folder", scripts: true });
+    expect(tree(c)[0]!.children![0]).not.toHaveProperty("scripts");
+  });
+
+  it("lists the levels whose scripts run first, outermost first", () => {
+    const c = sample();
+    expect(scriptLevels(c, "r1")).toEqual([
+      { folderId: null, name: "Renovaciones demo", prerequest: true, test: false },
+      { folderId: "f1", name: "Pedidos", prerequest: false, test: true },
+    ]);
+    expect(scriptLevels(c, "f1")).toEqual([{ folderId: null, name: "Renovaciones demo", prerequest: true, test: false }]);
+  });
+
+  it("saving untouched settings changes nothing", () => {
+    const c = sample();
+    const before = JSON.stringify(c);
+    const { description: _d, ...settings } = folderSettings(c);
+    applyFolderSettings(c, settings);
+    const folder = findFolder(c, "f1")!;
+    const { description: _f, ...folderOwn } = folderSettings(folder);
+    applyFolderSettings(folder, folderOwn);
+    expect(JSON.stringify(c)).toBe(before);
+  });
+
+  it("writes edited variables keeping ids, types and untouched values", () => {
+    const c = sample();
+    const { variables } = folderSettings(c);
+    applyFolderSettings(c, {
+      ...folderSettings(c),
+      variables: [...variables.slice(0, 2).map((v) => (v.key === "llavePublica" ? { ...v, value: "MIIB-nueva" } : v)), { ...variables[2]!, secret: false }, variables[3]!, { key: "nueva", value: "x", enabled: false, secret: true }],
+    });
+    expect(c["variable"]).toEqual([
+      { key: "------ LLAVES ------", value: "------ LLAVES ------", disabled: true },
+      { id: "v1", key: "llavePublica", value: "MIIB-nueva", type: "default" },
+      { key: "claveApi", value: "k-123", type: "default" },
+      { key: "reintentos", value: 3, description: "Veces que se repite" },
+      { key: "nueva", value: "x", disabled: true, type: "secret" },
+    ]);
+  });
+
+  it("writes scripts and auth, and an empty collection auth removes the key", () => {
+    const c = sample();
+    applyFolderSettings(c, { ...folderSettings(c), scripts: { prerequest: "", test: "pm.test('t', () => {});" }, auth: { type: "basic", username: "ana", password: "pw" } });
+    expect(c["event"]).toEqual([{ listen: "test", script: { type: "text/javascript", exec: ["pm.test('t', () => {});"] } }]);
+    expect(c["auth"]).toMatchObject({ type: "basic" });
+    applyFolderSettings(c, { ...folderSettings(c), auth: { type: "none" } });
+    expect(c).not.toHaveProperty("auth");
+
+    const folder = findFolder(c, "f1")!;
+    applyFolderSettings(folder, { ...folderSettings(folder), auth: { type: "inherit" }, scripts: { prerequest: "", test: "" } });
+    expect(folder).not.toHaveProperty("auth");
+    expect(folder).not.toHaveProperty("event");
+    applyFolderSettings(folder, { ...folderSettings(folder), auth: { type: "none" } });
+    expect(folder["auth"]).toEqual({ type: "noauth" });
   });
 });

@@ -4,10 +4,10 @@
  * forwards the operation name, so it never imports zod.
  */
 import { z } from "zod";
-import { httpRequestSchema, keyValueSchema, requestSourceSchema } from "./http";
+import { authSchema, httpRequestSchema, keyValueSchema, requestSourceSchema, scriptsSchema } from "./http";
 import { realtimeRequestSchema } from "./realtime";
 import { grpcRequestSchema } from "./grpc";
-import type { EnvironmentView, ImportResult, ItemView, RecentWorkspace, VariableView, WorkspaceSnapshot } from "./workspace";
+import type { EnvironmentView, FolderView, ImportResult, ItemView, RecentWorkspace, VariableView, WorkspaceSnapshot } from "./workspace";
 
 const id = z.string().min(1).max(128);
 const name = z.string().trim().min(1).max(200);
@@ -38,6 +38,15 @@ export const workspaceOps = {
   renameItem: z.object({ collectionId: id, itemId: id, name }),
   removeItem: z.object({ collectionId: id, itemId: id }),
   duplicateItem: z.object({ collectionId: id, itemId: id }),
+  /** Scripts, auth and variables of the collection (folderId null) or of a folder. */
+  getFolder: z.object({ collectionId: id, folderId: id.nullable() }),
+  saveFolder: z.object({
+    collectionId: id,
+    folderId: id.nullable(),
+    scripts: scriptsSchema,
+    auth: authSchema,
+    variables: z.array(keyValueSchema.extend({ value: z.string().max(4_194_304), secret: z.boolean() })).max(5_000),
+  }),
 
   createCollection: z.object({ name }),
   renameCollection: z.object({ collectionId: id, name }),
@@ -83,6 +92,8 @@ export interface WorkspaceResults {
   renameItem: null;
   removeItem: null;
   duplicateItem: { itemId: string };
+  getFolder: FolderView;
+  saveFolder: null;
   createCollection: { collectionId: string };
   renameCollection: null;
   deleteCollection: null;

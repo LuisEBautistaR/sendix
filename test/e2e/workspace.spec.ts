@@ -239,3 +239,64 @@ test("imports a cURL command copied from the browser for cmd, from the Import me
   await expect(body).toContainText('"accept": "application/json"');
   await expect(body).toContainText('"body": "{\\"nombre\\":\\"Ana 100%\\"}"');
 });
+
+test("shows and edits the scripts, variables and auth of the collection and its folders", async () => {
+  const { win } = s;
+  await openWorkspace(win);
+
+  // The collection has a script and variables: its row says so and opens them.
+  await win.getByTestId("collection-flag").click();
+  await expect(win.getByTestId("folder-name")).toHaveText("Tienda demo");
+  await expect(win.getByTestId("script-prerequest")).toContainText("// script de la colección");
+
+  await win.getByTestId("folder-tab-variables").click();
+  await expect(win.getByTestId("folder-var-key-1")).toHaveValue("categoria");
+  await win.getByTestId("folder-var-value-1").fill("infusion");
+  await win.getByTestId("folder-var-key-3").fill("token");
+  await win.getByTestId("folder-var-value-3").fill("tok-de-prueba");
+  await win.getByTestId("folder-var-secret-3").check();
+  await expect(win.getByTestId("folder-var-value-3")).toHaveAttribute("type", "password");
+  await win.getByTestId("folder-var-reveal").check();
+  await expect(win.getByTestId("folder-var-value-3")).toHaveAttribute("type", "text");
+  await win.getByTestId("folder-var-search").fill("cat");
+  await expect(win.getByTestId("folder-var-table").locator("tbody tr")).toHaveCount(1);
+  await win.getByTestId("folder-var-search").fill("");
+  await win.screenshot({ path: resolve(shots, "folder-variables.png") });
+  await win.keyboard.press("Control+S");
+  await expect(win.getByTestId("folder-save")).toBeDisabled();
+  const saved = JSON.parse(readFileSync(collectionFile(), "utf8"));
+  expect(saved.variable.slice(1)).toEqual([
+    { key: "categoria", value: "infusion", type: "string" },
+    { key: "viejo", value: "x", disabled: true },
+    { key: "token", value: "tok-de-prueba", type: "secret" },
+  ]);
+
+  // A folder, from its menu: what it inherits, its auth and a new script.
+  await win.getByTestId("tree-folder").filter({ hasText: "Productos" }).hover();
+  await win.getByRole("button", { name: "Acciones de Productos" }).click();
+  await win.getByRole("menuitem", { name: "Scripts y variables" }).click();
+  await expect(win.getByTestId("folder-name")).toHaveText("Productos");
+  await expect(win.getByTestId("folder-overview")).toContainText("Clave de API");
+  await win.screenshot({ path: resolve(shots, "folder-overview.png") });
+  await win.getByTestId("folder-tab-scripts").click();
+  await expect(win.getByTestId("inherited-scripts")).toContainText("Tienda demo");
+  await win.getByTestId("script-prerequest").click();
+  await win.keyboard.insertText('pm.request.headers.add({ key: "X-Carpeta", value: pm.collectionVariables.get("categoria") });');
+  await win.screenshot({ path: resolve(shots, "folder-scripts.png") });
+  await win.getByTestId("folder-save").click();
+  await expect(win.getByTestId("folder-save")).toBeDisabled();
+  await expect(win.getByTestId("folder-flag")).toBeVisible();
+  expect(JSON.parse(readFileSync(collectionFile(), "utf8")).item[0].event[0].script.exec[0]).toContain("X-Carpeta");
+
+  // The request runs the folder's script after the collection's, and says so.
+  await openRequest(win, "Listar productos");
+  await win.getByTestId("send").click();
+  await expect(win.getByTestId("status")).toHaveText("200 OK");
+  await expect(win.getByTestId("response-body")).toContainText('"x-carpeta": "infusion"');
+  await win.getByTestId("req-tab-scripts").click();
+  const inherited = win.getByTestId("inherited-scripts");
+  await expect(inherited).toContainText("Tienda demo");
+  await expect(inherited).toContainText("Productos");
+  await inherited.getByRole("button", { name: "Productos" }).click();
+  await expect(win.getByTestId("folder-name")).toHaveText("Productos");
+});

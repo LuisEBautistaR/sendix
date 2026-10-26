@@ -1,4 +1,4 @@
-import { isDirty, useStore, type Tab } from "../state/store";
+import { isDirty, isFolderDirty, useStore, type Tab } from "../state/store";
 import { requestName } from "../lib/url";
 import { Icon } from "../Icon";
 import { methodClass } from "./RequestPane";
@@ -16,6 +16,13 @@ function useLabel(tab: Tab): { method: string | null; name: string; title: strin
   if (tab.kind === "environment") {
     const name = environments?.find((e) => e.id === tab.environmentId)?.name ?? "Entorno";
     return { method: null, name, title: `Entorno ${name}`, dirty: false };
+  }
+  if (tab.kind === "folder") {
+    const collection = collections?.find((c) => c.id === tab.collectionId)?.name ?? "Colección";
+    const name = tab.view?.name ?? (tab.folderId === null ? collection : "Carpeta");
+    const where = tab.folderId === null ? "Colección" : `Carpeta de ${[collection, ...(tab.view?.path ?? [])].join(" / ")}`;
+    return { method: null, name, title: `${name}
+${where}: scripts, variables y autorización`, dirty: isFolderDirty(tab) };
   }
   if (tab.kind === "grpc") {
     const name = tab.name ?? (tab.draft.method || tab.draft.target.trim() || "Nueva llamada gRPC");
@@ -38,7 +45,7 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
         {method ? (
           <span className={`meth ${methodClass(method)}`}>{method === "DELETE" ? "DEL" : method}</span>
         ) : (
-          <Icon name={tab.kind === "environment" ? "layers" : tab.kind === "runner" ? "run" : tab.kind === "settings" ? "sliders" : "pulse"} size={14} />
+          <Icon name={tab.kind === "environment" ? "layers" : tab.kind === "folder" ? (tab.folderId === null ? "box" : "folder") : tab.kind === "runner" ? "run" : tab.kind === "settings" ? "sliders" : "pulse"} size={14} />
         )}
         <span className={`name${(tab.kind === "request" || tab.kind === "realtime" || tab.kind === "grpc") && !tab.source ? " scratch" : ""}`}>{name}</span>
         {sending && <span className="sending-dot" aria-label="Enviando" />}

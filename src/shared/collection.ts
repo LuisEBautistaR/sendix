@@ -20,6 +20,8 @@ export interface TreeNode {
   kind: "folder" | "request";
   method?: string;
   children?: TreeNode[];
+  /** Folders only: set when the folder has a pre-request or test script. */
+  scripts?: boolean;
 }
 
 const isObject = (v: unknown): v is Json => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -82,7 +84,7 @@ function requestMethod(item: Json): string {
 export function tree(node: Json): TreeNode[] {
   return children(node).map((item) =>
     isFolder(item)
-      ? { id: str(item["id"]), name: str(item["name"], "Carpeta"), kind: "folder" as const, children: tree(item) }
+      ? { id: str(item["id"]), name: str(item["name"], "Carpeta"), kind: "folder" as const, children: tree(item), ...(hasScripts(item) ? { scripts: true } : {}) }
       : { id: str(item["id"]), name: str(item["name"], "Petición"), kind: "request" as const, method: requestMethod(item) },
   );
 }
@@ -448,6 +450,107 @@ export function applyRequest(item: Json, request: HttpRequest, disabledParams: r
   Object.assign(ppb, behaviorOf(request.settings));
   if (Object.keys(ppb).length) item["protocolProfileBehavior"] = ppb;
   else delete item["protocolProfileBehavior"];
+}
+
+// ---------- folders and the collection ----------
+
+/** A collection or folder variable as Sendix edits it. */
+export interface FolderVariable extends KeyValue {
+  /** Postman's `type: "secret"`: still saved in the file, only masked on screen. */
+  secret: boolean;
+}
+
+/** What Sendix edits on a collection or a folder: its scripts, its auth and its variables. */
+export interface FolderSettings {
+  scripts: RequestScripts;
+  auth: RequestAuth;
+  variables: FolderVariable[];
+}
+
+const isRoot = (node: Json): boolean => isObject(node["info"]);
+const variableList = (node: Json): Json[] => (Array.isArray(node["variable"]) ? (node["variable"] as unknown[]).filter(isObject) : []);
+
+export function folderVariables(node: Json): FolderVariable[] {
+  return variableList(node)
+    .filter((v) => typeof v["key"] === "string")
+    .map((v) => {
+      const description = text(v["description"]);
+      return { key: v["key"] as string, value: str(v["value"]), enabled: v["disabled"] !== true, secret: v["type"] === "secret", ...(description ? { description } : {}) };
+    });
+}
+
+/** The collection's auth is never inherited: no auth there means none. */
+function levelAuth(node: Json): RequestAuth {
+  const auth = authFromItem(node["auth"]);
+  return isRoot(node) && auth.type === "inherit" ? { type: "none" } : auth;
+}
+
+export function folderSettings(node: Json): FolderSettings & { description: string } {
+  return { scripts: scriptsFromEvents(node["event"]), auth: levelAuth(node), variables: folderVariables(node), description: text(node["description"]) ?? "" };
+}
+
+/** Writes the parts that changed into the collection or folder, keeping every other key (and each variable's id or type) as it was. */
+export function applyFolderSettings(node: Json, next: FolderSettings): void {
+  const before = folderSettings(node);
+  if (!same(before.scripts, next.scripts)) {
+    const events = scriptsToEvents(node["event"], next.scripts);
+    if (events.length) node["event"] = events;
+    else delete node["event"];
+  }
+  if (!same(before.auth, next.auth)) {
+    const auth = isRoot(node) && next.auth.type === "none" ? null : authToJson(next.auth);
+    if (auth === null) delete node["auth"];
+    else if (auth !== undefined) node["auth"] = auth;
+  }
+  if (!same(before.variables, next.variables)) {
+    const previous = new Map(variableList(node).map((v) => [str(v["key"]), v]));
+    const list = next.variables
+      .filter((v) => v.key !== "" || v.value !== "")
+      .map((v) => {
+        const old = previous.get(v.key);
+        const out: Json = { ...old, key: v.key, value: old && str(old["value"]) === v.value ? old["value"] : v.value };
+        if (v.enabled) delete out["disabled"];
+        else out["disabled"] = true;
+        if (v.secret) out["type"] = "secret";
+        else if (out["type"] === "secret") out["type"] = "default";
+        if (!v.description) delete out["description"];
+        else if (text(out["description"]) !== v.description) out["description"] = v.description;
+        return out;
+      });
+    if (list.length) node["variable"] = list;
+    else delete node["variable"];
+  }
+}
+
+/** The collection (null) or folder with this id, or null if there is none. */
+export function findFolder(collection: Json, folderId: string | null): Json | null {
+  if (folderId === null) return collection;
+  const item = findItem(collection, folderId);
+  return item && isFolder(item) ? item : null;
+}
+
+export const hasScripts = (node: Json): boolean => {
+  const s = scriptsFromEvents(node["event"]);
+  return s.prerequest.trim() !== "" || s.test.trim() !== "";
+};
+
+/** A level above an item whose scripts also run when it is sent. */
+export interface ScriptLevel {
+  /** null for the collection. */
+  folderId: string | null;
+  name: string;
+  prerequest: boolean;
+  test: boolean;
+}
+
+/** The collection and the folders above `id` that have scripts, from the outside in (the order they run). */
+export function scriptLevels(collection: Json, id: string | null): ScriptLevel[] {
+  const above = id === null ? [] : (findPath(collection, id) ?? []).slice(0, -1);
+  return [collection, ...above].flatMap((node) => {
+    const s = scriptsFromEvents(node["event"]);
+    if (!s.prerequest.trim() && !s.test.trim()) return [];
+    return [{ folderId: node === collection ? null : str(node["id"]), name: node === collection ? collectionName(collection) : str(node["name"], "Carpeta"), prerequest: s.prerequest.trim() !== "", test: s.test.trim() !== "" }];
+  });
 }
 
 // ---------- structure edits ----------

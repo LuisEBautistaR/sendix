@@ -8,6 +8,7 @@ import { RequestEditor, RequestLine } from "./components/RequestPane";
 import { ResponsePane } from "./components/ResponsePane";
 import { STATE_LABEL, SystemStatus, useEngineStatus } from "./components/SystemStatus";
 import { EnvironmentEditor } from "./components/EnvironmentEditor";
+import { FolderEditor } from "./components/FolderEditor";
 import { SaveDialog } from "./components/SaveDialog";
 import { Notices, TitleBar } from "./components/TitleBar";
 import { RunnerView } from "./components/RunnerView";
@@ -46,6 +47,9 @@ function useShortcuts() {
       } else if (key === "s" && (active?.kind === "request" || active?.kind === "realtime" || active?.kind === "grpc")) {
         e.preventDefault();
         void save(active.id);
+      } else if (key === "s" && active?.kind === "folder") {
+        e.preventDefault();
+        void useStore.getState().saveFolder(active.id);
       } else if (key === "t") {
         e.preventDefault();
         newRequest();
@@ -165,6 +169,7 @@ export function App() {
           </section>
         )}
         {activeTab?.kind === "environment" && <EnvironmentEditor key={activeTab.id} tab={activeTab} />}
+        {activeTab?.kind === "folder" && <FolderEditor key={activeTab.id} tab={activeTab} />}
         {activeTab?.kind === "system" && <SystemStatus />}
         {activeTab?.kind === "settings" && <SettingsView />}
         {activeTab?.kind === "runner" && <RunnerView key={activeTab.id} tab={activeTab} />}

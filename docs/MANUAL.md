@@ -130,6 +130,7 @@ Si no hubo respuesta, Sendix explica la causa en palabras (dirección mal escrit
 
 **Crear.** El **+** de la barra lateral crea una colección. El menú de una colección o carpeta (los tres puntos) permite:
 - crear una petición o una carpeta;
+- ver sus **scripts y variables**;
 - ejecutarla;
 - renombrarla;
 - duplicar un elemento;
@@ -137,12 +138,20 @@ Si no hubo respuesta, Sendix explica la causa en palabras (dirección mal escrit
 
 **Guardar.** `Ctrl S` guarda la pestaña. Si la petición es nueva, Sendix pregunta el nombre, la colección y la carpeta.
 
+**Scripts, variables y autorización de una colección o carpeta.** Abre **Scripts y variables** en su menú, o pulsa el icono `</>` que aparece en su fila cuando tiene scripts o variables. La pestaña muestra:
+- **Resumen:** qué scripts tiene, cuántas variables, qué autorización da a las peticiones de dentro y su descripción;
+- **Autorización:** la que usan las peticiones de dentro que tienen «Heredar»;
+- **Scripts:** antes de la petición y después de la respuesta, con los niveles superiores cuyos scripts corren antes;
+- **Variables** (en la colección): con buscador. Las desactivadas, como las filas que sirven de título, se ven tachadas. Las de tipo secreto se ocultan, y **Mostrar secretas** las enseña.
+
+En Postman las carpetas no tienen variables propias. Si un archivo las trae, Sendix las muestra pero no las usa al enviar.
+
 **Sin pérdidas.** Al guardar, Sendix solo reescribe lo que cambiaste. Los ejemplos, las descripciones y lo que aún no edita se conservan tal cual, y guardar sin cambios deja el archivo idéntico. Así un `git diff` muestra solo tu cambio.
 
 ## 7. Variables, entornos y secretos
 
 **Dónde viven las variables.** Las variables vienen de dos sitios:
-- **la colección:** en su archivo;
+- **la colección:** en su archivo; se editan en su pestaña (sección 6);
 - **el entorno activo:** tiene prioridad si se repite un nombre.
 
 **Crear un entorno.** En **Entornos** (rail) pulsa **+**, escribe un nombre, añade variables y pulsa **Guardar** (`Ctrl S`). Elige el entorno activo en **Entorno**, arriba a la derecha.
@@ -208,7 +217,7 @@ En **Scripts** hay dos momentos:
 - **Antes de la petición:** prepara variables, cabeceras o firmas. Si falla, la petición no se envía.
 - **Después de la respuesta:** escribe tests y guarda valores para otras peticiones.
 
-Usan la misma API `pm.*` de Postman: `pm.test`, `pm.expect`, `pm.response`, `pm.environment`, `pm.collectionVariables`, `pm.iterationData`, `pm.sendRequest`… Los scripts de la colección y de cada carpeta se ejecutan antes que los de la petición, como en Postman.
+Usan la misma API `pm.*` de Postman: `pm.test`, `pm.expect`, `pm.response`, `pm.environment`, `pm.collectionVariables`, `pm.iterationData`, `pm.sendRequest`… Los scripts de la colección y de cada carpeta se ejecutan antes que los de la petición, como en Postman. En **Scripts**, la petición indica qué niveles tienen scripts; pulsa uno para verlos o editarlos.
 
 ```js
 pm.test("El estado es 200", () => pm.response.to.have.status(200));

@@ -22,6 +22,7 @@ const paths = {
     </>
   ),
   pulse: <path d="M3 12h4l2-5 4 10 2-5h6" />,
+  code: <path d="m9 7-5 5 5 5M15 7l5 5-5 5" />,
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   x: <path d="m7 7 10 10M17 7 7 17" />,
   down: <path d="m7 10 5 5 5-5" />,

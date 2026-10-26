@@ -187,7 +187,7 @@ export const requestIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/);
 
 const variableSchema = z.object({
   key: z.string().max(1_024),
-  value: z.string().max(1_048_576),
+  value: z.string().max(4_194_304),
   enabled: z.boolean(),
   /** Secret values are masked in console output and test messages. */
   secret: z.boolean().optional(),

@@ -13,6 +13,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
+  applyFolderSettings,
   applyGrpc,
   applyRealtime,
   applyRequest,
@@ -24,10 +25,14 @@ import {
   duplicateItem,
   eventChainFor,
   ensureIds,
+  findFolder,
   findItem,
   findPath,
+  folderSettings,
+  folderVariables,
   grpcFromItem,
   grpcPaths,
+  hasScripts,
   insertItem,
   isFolder,
   isRealtimeItem,
@@ -40,8 +45,11 @@ import {
   realtimeFromItem,
   removeItem,
   renameItem,
+  scriptLevels,
   tree,
+  type FolderSettings,
   type Json,
+  type TreeNode,
 } from "@shared/collection";
 import type { HttpRequest, KeyValue, RequestSource, SendContext, SessionChanges } from "@shared/http";
 import type { RealtimeRequest } from "@shared/realtime";
@@ -51,6 +59,7 @@ import type {
   EnvironmentRowInput,
   EnvironmentSummary,
   EnvironmentView,
+  FolderView,
   ItemView,
   VariableView,
   WorkspaceSnapshot,
@@ -263,6 +272,8 @@ export class Workspace {
       name: collectionName(c.json),
       file: basename(c.file),
       tree: tree(c.json),
+      scripts: hasScripts(c.json),
+      variables: folderVariables(c.json).length,
     }));
     const environments: EnvironmentSummary[] = [...this.#environments.entries()].map(([id, e]) => ({
       id,
@@ -298,6 +309,35 @@ export class Workspace {
       realtime: realtimeFromItem(item),
       grpc: grpcFromItem(item),
     };
+  }
+
+  // ---------- the collection and its folders ----------
+
+  getFolder(collectionId: string, folderId: string | null): FolderView {
+    const c = this.#collection(collectionId);
+    const node = findFolder(c.json, folderId);
+    if (!node) throw new WorkspaceError("NOT_FOUND", "La carpeta ya no existe");
+    const path = folderId === null ? [] : (findPath(c.json, folderId) ?? []).slice(0, -1).map((f) => String(f["name"] ?? ""));
+    const count = (nodes: TreeNode[]): number => nodes.reduce((n, x) => n + (x.kind === "request" ? 1 : count(x.children ?? [])), 0);
+    const { description, ...settings } = folderSettings(node);
+    return {
+      collectionId,
+      folderId,
+      name: folderId === null ? collectionName(c.json) : typeof node["name"] === "string" ? node["name"] : "Carpeta",
+      path,
+      description,
+      ...settings,
+      inherited: folderId === null ? [] : scriptLevels(c.json, folderId),
+      requests: count(tree(node)),
+    };
+  }
+
+  async saveFolder(collectionId: string, folderId: string | null, settings: FolderSettings): Promise<void> {
+    const c = this.#collection(collectionId);
+    const node = findFolder(c.json, folderId);
+    if (!node) throw new WorkspaceError("NOT_FOUND", "La carpeta ya no existe");
+    applyFolderSettings(node, settings);
+    await this.#writeCollection(collectionId);
   }
 
   async saveGrpcItem(source: RequestSource, g: GrpcRequest): Promise<void> {

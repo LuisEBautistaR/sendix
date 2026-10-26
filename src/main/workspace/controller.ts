@@ -194,6 +194,11 @@ export class WorkspaceController {
       return null;
     },
     duplicateItem: async ({ collectionId, itemId }) => ({ itemId: await this.#ws().duplicateItem(collectionId, itemId) }),
+    getFolder: ({ collectionId, folderId }) => this.#ws().getFolder(collectionId, folderId),
+    saveFolder: async ({ collectionId, folderId, ...settings }) => {
+      await this.#ws().saveFolder(collectionId, folderId, settings);
+      return null;
+    },
 
     createCollection: async ({ name }) => ({ collectionId: await this.#ws().createCollection(name) }),
     renameCollection: async ({ collectionId, name }) => {
@@ -234,7 +239,7 @@ export class WorkspaceController {
   };
 
   /** Operations that do not change the workspace, so no snapshot broadcast is needed. */
-  static readonly #readOnly = new Set<WorkspaceOp>(["current", "recent", "getItem", "getEnvironment", "variables", "reveal"]);
+  static readonly #readOnly = new Set<WorkspaceOp>(["current", "recent", "getItem", "getFolder", "getEnvironment", "variables", "reveal"]);
 
   register(): void {
     ipcMain.handle(IpcChannels.workspaceOp, async (event, op: unknown, args: unknown): Promise<Outcome<unknown>> => {

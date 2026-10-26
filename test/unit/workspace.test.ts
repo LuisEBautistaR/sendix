@@ -62,6 +62,29 @@ describe("workspace folder", () => {
     expect(JSON.stringify(readJson(join(dir, "collections", "Tienda.postman_collection.json")))).toBe(firstIds);
   });
 
+  it("shows and saves the collection's and a folder's scripts, auth and variables", async () => {
+    const dir = withFixture();
+    const ws = await Workspace.open(dir, deps());
+    const col = ws.snapshot().collections[0]!;
+    expect(col).toMatchObject({ scripts: true, variables: 3 });
+    const folderId = col.tree[0]!.id;
+
+    const root = ws.getFolder(col.id, null);
+    expect(root).toMatchObject({ folderId: null, name: "Tienda demo", path: [], inherited: [], requests: 4 });
+    expect(root.variables.map((v) => v.key)).toEqual(["base", "categoria", "viejo"]);
+    const folder = ws.getFolder(col.id, folderId);
+    expect(folder).toMatchObject({ name: "Productos", path: [], requests: 2, inherited: [{ folderId: null, name: "Tienda demo" }] });
+    expect(() => ws.getFolder(col.id, col.tree[1]!.id)).toThrow(/ya no existe/);
+
+    await ws.saveFolder(col.id, folderId, { ...folder, scripts: { prerequest: "pm.variables.set('x', 1);", test: "" } });
+    await ws.saveFolder(col.id, null, { ...root, variables: [...root.variables, { key: "nueva", value: "1", enabled: true, secret: false }] });
+    const saved = readJson(join(dir, "collections", "Tienda.postman_collection.json"));
+    expect(saved.item[0].event).toEqual([{ listen: "prerequest", script: { type: "text/javascript", exec: ["pm.variables.set('x', 1);"] } }]);
+    expect(saved.variable.at(-1)).toEqual({ key: "nueva", value: "1" });
+    expect(ws.snapshot().collections[0]!.tree[0]).toMatchObject({ scripts: true });
+    expect(ws.contextFor({ collectionId: col.id, itemId: col.tree[0]!.children![0]!.id }).eventChain[1]).toHaveLength(1);
+  });
+
   it("edits a request in place and keeps the rest of the file", async () => {
     const dir = withFixture();
     const ws = await Workspace.open(dir, deps());
