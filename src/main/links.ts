@@ -8,7 +8,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { app, ipcMain, shell } from "electron";
 import { IpcChannels } from "@shared/ipc";
-import { MOCKIX_SCHEME, SENDIX_SCHEME, mockixImportLink, parseSendixLink, type LinkedRequest } from "@shared/links";
+import { MOCKIX_SCHEME, SENDIX_SCHEME, ensureSendixProtocol, mockixImportLink, parseSendixLink, type LinkedRequest } from "@shared/links";
 import type { WorkspaceController } from "./workspace/controller";
 import { isTrustedSender } from "./security";
 
@@ -29,9 +29,15 @@ export class LinkService {
     private readonly log: (message: string, detail?: unknown) => void,
   ) {}
 
-  /** Registers sendix:// with Windows for this installation (packaged builds only). */
-  static registerProtocol(): void {
-    if (app.isPackaged && !app.isDefaultProtocolClient(SENDIX_SCHEME)) app.setAsDefaultProtocolClient(SENDIX_SCHEME);
+  /**
+   * Registers sendix:// with Windows for this installation (packaged builds only), and
+   * again on focus: an update could remove it after the start, and Mockix only offers
+   * its «Sendix» button while it exists.
+   */
+  registerProtocol(): void {
+    if (!app.isPackaged) return;
+    ensureSendixProtocol(app);
+    app.on("browser-window-focus", () => ensureSendixProtocol(app) && this.log(`registered ${SENDIX_SCHEME}:// again`));
   }
 
   handle(raw: string): void {

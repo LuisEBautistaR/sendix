@@ -6,7 +6,7 @@ Cliente de API de escritorio, local primero y compatible con colecciones Postman
 
 **¿Primera vez?** Empieza por la [guía rápida](docs/GUIA-RAPIDA.md) (también en [protohub.digital/sendix/guia](https://protohub.digital/sendix/guia/)). Cada función se explica en el [manual de uso](docs/MANUAL.md).
 
-Estado: **0.3.0**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC), los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red) y la integración con Mockix.
+Estado: **0.3.1**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC), los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red) y la integración con Mockix.
 
 **Peticiones (M1)**
 - Editor de peticiones:
@@ -139,7 +139,7 @@ Estado: **0.3.0**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.
 
 **Integración con Mockix**
 - **`sendix://` (de Mockix a Sendix):** el botón «Sendix» del editor de rutas de Mockix («Abrir esta petición en Sendix») abre `sendix://request?method=…&url=…[&headers=<JSON>][&body=…]`.
-  - **Registro:** el instalador lo registra para el usuario (`build/installer.nsh`) y la app lo vuelve a registrar al arrancar empaquetada (`app.setAsDefaultProtocolClient`). Al desinstalar, el registro solo se borra si sigue apuntando a esa instalación.
+  - **Registro:** el instalador lo registra para el usuario (`build/installer.nsh`) y la app lo vuelve a registrar al arrancar empaquetada (`app.setAsDefaultProtocolClient`) y, si algo lo quitó, al recibir el foco. Al desinstalar, el registro solo se borra si sigue apuntando a esa instalación; una actualización no lo borra.
   - **Llegada del enlace en Windows:** si Sendix ya está abierto, llega por el `argv` de la segunda instancia (instancia única); si lo arranca el enlace, por su propio `argv`.
   - **Validación (zod, `src/shared/links.ts`):**
     - métodos GET, POST, PUT, PATCH, DELETE, HEAD u OPTIONS;

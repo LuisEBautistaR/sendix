@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linkFromArgv, mockixImportLink, parseSendixLink } from "@shared/links";
+import { ensureSendixProtocol, linkFromArgv, mockixImportLink, parseSendixLink } from "@shared/links";
 
 /** Builds the link exactly as Mockix's «Abrir en Sendix» does. */
 function mockixLink(req: { method: string; url: string; body?: string; headers?: Record<string, string> }) {
@@ -67,6 +67,21 @@ describe("linkFromArgv", () => {
     expect(linkFromArgv(["C:\\Sendix\\Sendix.exe", "--flag", "sendix://request?method=GET&url=x"])).toBe("sendix://request?method=GET&url=x");
     expect(linkFromArgv(["C:\\Sendix\\Sendix.exe", "SENDIX://request"])).toBe("SENDIX://request");
     expect(linkFromArgv(["C:\\Sendix\\Sendix.exe", "."])).toBeNull();
+  });
+});
+
+describe("ensureSendixProtocol", () => {
+  it("registers sendix:// again only when it no longer points to this app", () => {
+    const calls: string[] = [];
+    const registry = (current: boolean) => ({
+      isDefaultProtocolClient: (scheme: string) => (calls.push(`is ${scheme}`), current),
+      setAsDefaultProtocolClient: (scheme: string) => (calls.push(`set ${scheme}`), true),
+    });
+    expect(ensureSendixProtocol(registry(true))).toBe(false);
+    expect(calls).toEqual(["is sendix"]);
+    calls.length = 0;
+    expect(ensureSendixProtocol(registry(false))).toBe(true);
+    expect(calls).toEqual(["is sendix", "set sendix"]);
   });
 });
 

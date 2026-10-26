@@ -81,8 +81,8 @@ if (!app.requestSingleInstanceLock()) {
     registerPreviews();
     const workspaces = new WorkspaceController(settings, secrets, engine);
     workspaces.register();
-    LinkService.registerProtocol();
     links = new LinkService(workspaces, broadcast, (m, d) => log(m, d));
+    links.registerProtocol();
     links.register();
     const grpcFiles = new GrpcFiles(workspaces);
     grpcFiles.register();

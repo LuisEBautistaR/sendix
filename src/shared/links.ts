@@ -88,6 +88,20 @@ export function parseSendixLink(raw: string): LinkParse {
   return { ok: true, request: { method, url: target, headers, body: body ?? null } };
 }
 
+/** The part of Electron's `app` that owns protocol registration. */
+export interface ProtocolRegistry {
+  isDefaultProtocolClient(scheme: string): boolean;
+  setAsDefaultProtocolClient(scheme: string): boolean;
+}
+
+/**
+ * Points sendix:// at this app when it no longer does, and says whether it had to.
+ * An update or another installation can remove or redirect it while Sendix runs.
+ */
+export function ensureSendixProtocol(registry: ProtocolRegistry): boolean {
+  return !registry.isDefaultProtocolClient(SENDIX_SCHEME) && registry.setAsDefaultProtocolClient(SENDIX_SCHEME);
+}
+
 /** The first sendix:// argument of a command line: Windows hands links to the app as arguments. */
 export function linkFromArgv(argv: readonly string[]): string | null {
   return argv.find((a) => a.toLowerCase().startsWith(`${SENDIX_SCHEME}://`)) ?? null;
