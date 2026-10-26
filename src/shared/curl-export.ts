@@ -90,11 +90,11 @@ function msvcrtQuoted(arg: string): string {
 }
 
 /**
- * cmd: every quote is written as ^" so cmd never enters its own quoting, and every
- * character cmd could act on gets a caret. A % before a name gets a caret after it,
- * so cmd finds no variable to expand. A line break inside a value is ^ plus two breaks.
+ * cmd, the hard way: every quote is written as ^" so cmd never enters its own quoting,
+ * and every character cmd could act on gets a caret. A % before a name gets a caret
+ * after it, so cmd finds no variable to expand. A line break is ^ plus two breaks.
  */
-function quoteCmd(arg: string): string {
+function caretQuoted(arg: string): string {
   const inner = msvcrtQuoted(arg).slice(1, -1);
   const escaped = inner
     .replace(/[^A-Za-z0-9 \t\r\n_\-:=+~'/.,?;*`%]/g, "^$&")
@@ -103,8 +103,26 @@ function quoteCmd(arg: string): string {
   return `^"${escaped}^"`;
 }
 
+// No * or ?: curl.exe may expand them as file wildcards unless they are quoted.
+const CMD_BARE = /^[A-Za-z0-9_\-.:/@+~=,]+$/;
+
+/**
+ * cmd, the way people write it: bare when nothing needs quoting, otherwise in plain
+ * double quotes (inside them cmd leaves & | < > ^ alone; inner quotes go as \").
+ * cmd sees each \" as a quote too, so inner quotes must come in pairs (or cmd stays
+ * "inside quotes" for the rest of the line) and must not leave & | < > ^ ! outside.
+ * Anything else, and values with % or a line break, fall back to carets.
+ */
+function quoteCmd(arg: string): string {
+  if (arg !== "" && CMD_BARE.test(arg)) return arg;
+  const quotes = arg.split('"').length - 1;
+  if (!/[%\r\n]/.test(arg) && (quotes === 0 || (quotes % 2 === 0 && !/[&|<>^!]/.test(arg)))) return msvcrtQuoted(arg);
+  return caretQuoted(arg);
+}
+
 const QUOTE: Record<Exclude<CurlShell, "powershell">, (arg: string) => string> = { bash: quoteBash, cmd: quoteCmd };
-const CONTINUATION: Record<Exclude<CurlShell, "powershell">, string> = { bash: " \\\n  ", cmd: " ^\n  " };
+/** bash goes one option per line; cmd on a single line, which pastes anywhere (caret line breaks do not). */
+const CONTINUATION: Record<Exclude<CurlShell, "powershell">, string> = { bash: " \\\n  ", cmd: " " };
 
 /**
  * PowerShell 5.1 mangles quotes in arguments for programs, and 7 does it differently,
@@ -116,7 +134,7 @@ export const POWERSHELL_HEAD = "$config = @'";
 export const POWERSHELL_TAIL = ["'@", "$file = [IO.Path]::GetTempFileName()", "[IO.File]::WriteAllText($file, $config)", "try { curl.exe --config $file } finally { Remove-Item $file }"];
 
 /** Config-file names of the short options Sendix writes. */
-const LONG: Record<string, string> = { "-X": "request", "-H": "header", "-u": "user", "-L": "location", "-k": "insecure", "-F": "form" };
+const LONG: Record<string, string> = { "-X": "request", "-H": "header", "-u": "user", "-L": "location", "-k": "insecure", "-F": "form", "-x": "proxy", "-U": "proxy-user" };
 
 /** A value in a cURL config file: in double quotes, with \\ \" \n \r \t escapes. */
 function configValue(value: string): string {
@@ -132,6 +150,48 @@ function powerShellCommand(url: string, args: Arg[]): string {
 }
 
 // ---------- building ----------
+
+/** Sendix's proxy setting (Ajustes → Red), so the command goes out the same way. */
+export interface CurlProxy {
+  mode: "none" | "system" | "custom";
+  server: string;
+  username: string;
+  bypass: string;
+}
+
+function proxyArgs(proxy: CurlProxy | undefined, notes: Set<string>): Arg[] {
+  if (!proxy) return [];
+  // Sendix goes direct; without this curl would take HTTP(S)_PROXY from the environment.
+  if (proxy.mode === "none") return [["--noproxy", "*"]];
+  if (proxy.mode === "system") {
+    notes.add("Sendix usa el proxy de Windows, que cURL no lee: si hace falta, añade -x servidor:puerto.");
+    return [];
+  }
+  const server = proxy.server.trim();
+  if (!server) return [];
+  const args: Arg[] = [["-x", /^[a-z][a-z0-9+.-]*:\/\//i.test(server) ? server : `http://${server}`]];
+  // curl matches a name and its subdomains; it has no *.domain form.
+  const bypass = proxy.bypass
+    .split(",")
+    .map((h) => h.trim().replace(/^\*\./, "."))
+    .filter(Boolean)
+    .join(",");
+  if (bypass) args.push(["--noproxy", bypass]);
+  if (proxy.username.trim()) {
+    args.push(["-U", proxy.username.trim()]);
+    notes.add("cURL pedirá la contraseña del proxy al ejecutarlo.");
+  }
+  return args;
+}
+
+/** A JSON body on one line, for cmd; null when it is not valid JSON. */
+function compactJson(raw: string): string | null {
+  try {
+    return JSON.stringify(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
 
 class Builder {
   readonly notes = new Set<string>();
@@ -270,7 +330,7 @@ function bodyArgs(request: HttpRequest, b: Builder, contentType: (value: string)
   }
 }
 
-export function requestToCurl(request: HttpRequest, variables: readonly CurlVariable[], options: CurlOptions): CurlExport {
+export function requestToCurl(request: HttpRequest, variables: readonly CurlVariable[], options: CurlOptions, proxy?: CurlProxy): CurlExport {
   const b = new Builder(variables, options);
   const url = { value: b.resolve(request.url.trim()) };
   const auth = authArgs(request.auth, b, url);
@@ -298,10 +358,24 @@ export function requestToCurl(request: HttpRequest, variables: readonly CurlVari
   if (request.settings.followRedirects && request.settings.maxRedirects !== undefined) settings.push(["--max-redirs", String(request.settings.maxRedirects)]);
   if (!request.settings.verifyTls) settings.push(["-k"]);
   if (request.settings.timeoutMs !== DEFAULT_TIMEOUT_MS) settings.push(["--max-time", String(Math.round(request.settings.timeoutMs / 1000))]);
+  settings.push(...proxyArgs(proxy, b.notes));
+
+  // cmd cannot take a line break inside a pasted value, so JSON goes compacted.
+  if (options.shell === "cmd" && request.body.mode === "raw" && request.body.language === "json") {
+    const data = body.find((arg) => arg[0] === "--data-raw");
+    const compact = data?.[1]?.includes("\n") ? compactJson(data[1]) : null;
+    if (data && compact !== null) {
+      data[1] = compact;
+      b.notes.add("El JSON va en una sola línea para que cmd lo acepte: los datos son los mismos.");
+    }
+  }
 
   if (request.scripts && (request.scripts.prerequest.trim() || request.scripts.test.trim())) b.notes.add("Los scripts no se incluyen: cURL solo envía la petición.");
 
   const args = [...auth, ...headers, ...body, ...settings];
+  if (options.shell === "cmd" && args.some(([, value]) => value !== undefined && /[\r\n]/.test(value))) {
+    b.notes.add("Un valor tiene saltos de línea, así que en cmd el comando ocupa varias líneas: pégalo entero en una ventana de cmd.");
+  }
   // curl.exe reads its arguments in the Windows code page; the PowerShell config file goes as UTF-8.
   // Sendix's own placeholders (<contraseña>) do not count.
   const sent = [url.value, ...args.flat()].join("").replace(/<(token|contraseña|clave|oculto)>/g, "");

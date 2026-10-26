@@ -250,7 +250,7 @@ function fromLegacyArgument(word: string, legacy: boolean): string {
 }
 
 const SKIP = new Set(["-s", "--silent", "-S", "--show-error", "-v", "--verbose", "-i", "--include", "--compressed", "-L", "--location", "-g", "--globoff", "-N", "--no-buffer"]);
-const WITH_VALUE_IGNORED = new Set(["-o", "--output", "-w", "--write-out", "--connect-timeout", "--retry", "-U", "--proxy-user"]);
+const WITH_VALUE_IGNORED = new Set(["-o", "--output", "-w", "--write-out", "--connect-timeout", "--retry", "-U", "--proxy-user", "--noproxy"]);
 const CERT_OPTIONS = new Set(["-E", "--cert", "--key", "--cacert", "--capath", "--cert-type", "--key-type", "--pass"]);
 
 function decode(value: string): string {

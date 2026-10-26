@@ -42,9 +42,10 @@ export function registerCurl(workspaces: WorkspaceController, prefs: PrefsServic
       },
     };
 
-    const shown = requestToCurl(effective, variables, { ...options, includeSecrets: false });
+    const proxy = prefs.prefs.network.proxy;
+    const shown = requestToCurl(effective, variables, { ...options, includeSecrets: false }, proxy);
     if (!copy) return { ...shown, copied: false };
-    clipboard.writeText(options.includeSecrets ? requestToCurl(effective, variables, options).command : shown.command);
+    clipboard.writeText(options.includeSecrets ? requestToCurl(effective, variables, options, proxy).command : shown.command);
     return { ...shown, copied: true };
   });
 }

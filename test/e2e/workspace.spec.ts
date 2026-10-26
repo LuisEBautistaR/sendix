@@ -205,7 +205,7 @@ test("copies a saved request as cURL with its inherited auth, hiding the secret 
   await win.getByTestId("curl-copy").click();
   await expect(dialog).toBeHidden();
   const copied = await app.evaluate(({ clipboard }) => clipboard.readText());
-  expect(copied).toBe([`curl '${server.url}/echo?categoria=te' \\`, "  -H 'X-Clave: {{clave}}' \\", "  -H 'Accept: application/json' \\", "  -L"].join("\n"));
+  expect(copied).toBe([`curl '${server.url}/echo?categoria=te' \\`, "  -H 'X-Clave: {{clave}}' \\", "  -H 'Accept: application/json' \\", "  -L \\", "  --noproxy '*'"].join("\n"));
 
   // From the request line, with secrets: they reach the clipboard but never the window.
   await win.getByTestId("copy-curl").click();

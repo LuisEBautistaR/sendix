@@ -198,7 +198,9 @@ Con el botón `>_` junto a **Guardar**, o en el menú `⋯` de una petición del
 2. **Sustituir las variables por sus valores** usa el entorno activo. Desactívalo para dejar cada `{{variable}}` escrita.
 3. Revisa el comando y los avisos, y pulsa **Copiar**.
 
-El comando lleva la autorización que hereda la petición de su carpeta o su colección.
+El comando lleva la autorización que hereda la petición de su carpeta o su colección, y el mismo proxy que Sendix (**Ajustes → Red**): si Sendix va sin proxy, añade `--noproxy "*"` para que curl tampoco use el de las variables de entorno.
+
+En **cmd** el comando sale en una sola línea, con comillas dobles normales, y se pega en cualquier consola. Un cuerpo JSON se escribe en una línea con los mismos datos.
 
 **Los secretos no se copian si no lo pides.** Las variables secretas quedan como `{{nombre}}`, y el token, la contraseña y las cabeceras `Authorization` y `Cookie` salen como `<token>`, `<contraseña>` u `<oculto>`. Si los necesitas, marca **Incluir secretos y credenciales** y confírmalo. Irán al portapapeles, pero en la ventana siguen ocultos. Ojo: lo que está en el portapapeles lo pueden leer otras apps.
 

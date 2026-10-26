@@ -100,7 +100,32 @@ describe.skipIf(process.platform !== "win32")("cURL commands in real shells", ()
     expect(got.headers["x-vacia"]).toBe("");
     expect(got.headers["content-type"]).toBe("application/json");
     expect(got.headers["authorization"]).toBe(`Basic ${Buffer.from(`ana:p'w"\\ %x%`).toString("base64")}`);
-    expect(got.body).toBe((request.body as { raw: string }).raw);
+    const raw = (request.body as { raw: string }).raw;
+    // cmd gets the JSON on one line: the same data.
+    expect(got.body).toBe(shell === "cmd" ? JSON.stringify(JSON.parse(raw)) : raw);
+  }, 30_000);
+
+  it("cmd gets a plain one-line command, as written by hand, that goes out without a proxy", async () => {
+    const request: HttpRequest = {
+      method: "POST",
+      url: `${base}/eco/token`,
+      headers: [{ key: "Content-Type", value: "application/x-www-form-urlencoded", enabled: true }],
+      body: { mode: "urlencoded", fields: [{ key: "grant_type", value: "client_credentials", enabled: true }] },
+      auth: { type: "basic", username: "cliente-demo", password: "secreto-demo" },
+      settings: { ...DEFAULT_SETTINGS, verifyTls: false, followRedirects: false },
+    };
+    const proxy = { mode: "none" as const, server: "", username: "", bypass: "" };
+    const { command } = requestToCurl(request, [], { shell: "cmd", resolveVariables: true, includeSecrets: true }, proxy);
+    expect(command).toBe(
+      `curl ${base}/eco/token -u cliente-demo:secreto-demo -H "Content-Type: application/x-www-form-urlencoded" --data-urlencode grant_type=client_credentials -k --noproxy "*"`,
+    );
+    const before = seen.length;
+    const result = await execute("cmd", command);
+    expect(seen.length, result.out).toBe(before + 1);
+    const got = seen.at(-1)!;
+    expect(got.method).toBe("POST");
+    expect(got.headers["authorization"]).toBe(`Basic ${Buffer.from("cliente-demo:secreto-demo").toString("base64")}`);
+    expect(got.body).toBe("grant_type=client_credentials");
   }, 30_000);
 
   it("PowerShell sends accents as UTF-8, through its config file", async () => {

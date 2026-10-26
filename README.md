@@ -6,7 +6,7 @@ Cliente de API de escritorio, local primero y compatible con colecciones Postman
 
 **¿Primera vez?** Empieza por la [guía rápida](docs/GUIA-RAPIDA.md) (también en [protohub.digital/sendix/guia](https://protohub.digital/sendix/guia/)). Cada función se explica en el [manual de uso](docs/MANUAL.md).
 
-Estado: **0.5.0**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC), los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red), la integración con Mockix, «Copiar como cURL» y la pestaña de scripts y variables de colecciones y carpetas.
+Estado: **0.5.1**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.IO y gRPC), los de la 0.2 (ajustes y tema, visor de respuesta, ejecutor de colecciones y red), la integración con Mockix, «Copiar como cURL» y la pestaña de scripts y variables de colecciones y carpetas.
 
 **Peticiones (M1)**
 - Editor de peticiones:
@@ -159,6 +159,8 @@ Estado: **0.5.0**. Están completos los hitos de la 1.0 (HTTP, WebSocket/Socket.
 **cURL (0.4)**
 - **Copiar como cURL:** está en el botón `>_` junto a Guardar y en el menú de cada petición HTTP del árbol.
   - Escribe el comando para **bash** (Linux, macOS, Git Bash o WSL), **cmd** o **PowerShell**, y recuerda el último elegido.
+  - En cmd va en una sola línea, con comillas dobles normales (`-H "Content-Type: application/json"`), así se pega en cualquier consola. Solo usa `^` en valores con `%` o con comillas junto a `& | < > ^ !`. Un cuerpo JSON se compacta en una línea con los mismos datos.
+  - Sigue el proxy de **Ajustes → Red**: sin proxy añade `--noproxy "*"` (si no, curl tomaría `HTTPS_PROXY` del entorno), con un proxy propio `-x`, `--noproxy` con las excepciones y `-U usuario` (curl pide la contraseña), y con el proxy de Windows avisa de que curl no lo lee.
   - En PowerShell, las opciones se escriben en un texto literal (`@'…'@`). El comando lo guarda en un archivo temporal UTF-8 sin BOM, se lo pasa a `curl.exe --config` y lo borra al terminar.
     - Así funciona igual en Windows PowerShell 5.1 y en PowerShell 7, por raras que sean las comillas, y los acentos llegan en UTF-8.
     - No se usa una tubería, porque con la consola en UTF-8 Windows PowerShell antepone un BOM y curl rechaza la primera opción.

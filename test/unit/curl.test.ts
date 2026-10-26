@@ -126,6 +126,33 @@ describe("requestToCurl", () => {
     );
   });
 
+  it("goes out through the same proxy as Sendix, or none", () => {
+    const r = request();
+    const none = requestToCurl(r, [], opts("cmd"), { mode: "none", server: "", username: "", bypass: "" });
+    expect(none.command).toBe('curl https://api.tienda.test/v1/productos -L --noproxy "*"');
+
+    const custom = requestToCurl(r, [], opts("bash"), { mode: "custom", server: "proxy.empresa.test:8080", username: "ana", bypass: "localhost, *.interno.test" });
+    expect(custom.command).toContain("-x http://proxy.empresa.test:8080 \\\n  --noproxy localhost,.interno.test \\\n  -U ana");
+    expect(custom.notes.join(" ")).toContain("contraseña del proxy");
+
+    const ps = requestToCurl(r, [], opts("powershell"), { mode: "custom", server: "http://proxy.empresa.test:8080", username: "", bypass: "" });
+    expect(ps.command).toContain('proxy = "http://proxy.empresa.test:8080"');
+
+    const system = requestToCurl(r, [], opts("cmd"), { mode: "system", server: "", username: "", bypass: "" });
+    expect(system.command).not.toContain("proxy");
+    expect(system.notes.join(" ")).toContain("proxy de Windows");
+  });
+
+  it("writes cmd on one line with plain quotes, compacting JSON", () => {
+    const out = requestToCurl(
+      request({ method: "POST", headers: [{ key: "X-Filtro", value: "a & b", enabled: true }], body: { mode: "raw", language: "json", raw: '{\n  "a": "x y"\n}' } }),
+      [],
+      opts("cmd"),
+    );
+    expect(out.command).toBe('curl https://api.tienda.test/v1/productos -H "X-Filtro: a & b" -H "Content-Type: application/json" --data-raw "{\\"a\\":\\"x y\\"}" -L');
+    expect(out.notes.join(" ")).toContain("una sola línea");
+  });
+
   it.each(CURL_SHELLS)("round-trips a request with awkward values through %s", (shell) => {
     const original = request({
       method: "PATCH",
@@ -150,7 +177,8 @@ describe("requestToCurl", () => {
         { key: "X-Vacia", value: "", enabled: true },
         { key: "Content-Type", value: "application/json", enabled: true },
       ],
-      body: original.body,
+      // cmd takes JSON compacted onto one line: the same data.
+      body: shell === "cmd" && original.body.mode === "raw" ? { ...original.body, raw: JSON.stringify(JSON.parse(original.body.raw)) } : original.body,
       auth: original.auth,
       settings: { verifyTls: false },
     });
